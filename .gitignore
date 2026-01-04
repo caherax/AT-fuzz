@@ -1,0 +1,40 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env
+.venv
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# Tool outputs
+output/
+outputs/
+report/
+
+# local
+experiments/
+
+# AFL / fuzzing runtime
+crashes/
+queue/
+*.synced/
+
+# Logs
+*.log
+*.tmp
+*.temp
