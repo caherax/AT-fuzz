@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  # 交互式开发容器
+  fuzzer:
+    build: .
+    image: at-fuzz:latest
+    container_name: at-fuzz-dev
+    volumes:
+      - ./output:/fuzzer/output
+      - ./components:/fuzzer/components
+      - ./fuzzer.py:/fuzzer/fuzzer.py
+      - ./config.py:/fuzzer/config.py
+      - ./utils.py:/fuzzer/utils.py
+    working_dir: /fuzzer
+    stdin_open: true
+    tty: true
+    command: /bin/bash

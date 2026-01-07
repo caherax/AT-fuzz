@@ -1,0 +1,34 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies, AFL++ and build tools
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3 \
+    python3-pip \
+    afl++ \
+    wget \
+    tar \
+    cmake \
+    autoconf \
+    automake \
+    libtool \
+    pkg-config \
+    file \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip3 install matplotlib
+
+# Set AFLPP environment variable for scripts
+ENV AFLPP=/usr/bin
+
+# Set working directory
+WORKDIR /fuzzer
+
+# Create output directory
+RUN mkdir -p output
+
+# Default command: start bash for interactive use
+CMD ["/bin/bash"]
