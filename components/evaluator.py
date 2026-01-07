@@ -11,7 +11,6 @@
 import csv
 import json
 from pathlib import Path
-from typing import Dict, List
 from datetime import datetime
 
 try:
@@ -26,29 +25,29 @@ except ImportError:
 
 class Evaluator:
     """
-    评估器 - MVP 版本
-    
+    评估器
+
     工作流程：
     1. 定期记录运行时状态快照
     2. 输出为 CSV 文件供后续分析
     """
-    
+
     def __init__(self, output_dir: str):
         """
         初始化评估器
-        
+
         Args:
             output_dir: 输出目录
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.csv_file = self.output_dir / 'timeline.csv'
         self.start_time = None
-        
+
         # 初始化 CSV
         self._init_csv()
-    
+
     def _init_csv(self):
         """初始化 CSV 文件头"""
         try:
@@ -60,16 +59,16 @@ class Evaluator:
             backup_file = self.csv_file.with_suffix('.csv.bak')
             print(f"[!] Cannot overwrite {self.csv_file}, using backup: {backup_file}")
             self.csv_file = backup_file
-        
+
         with open(self.csv_file, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['timestamp', 'elapsed_sec', 'total_execs', 
+            writer.writerow(['timestamp', 'elapsed_sec', 'total_execs',
                            'exec_rate', 'total_crashes', 'coverage'])
-    
+
     def record(self, total_execs: int, exec_rate: float, total_crashes: int, coverage: int = 0):
         """
         记录一个时间快照
-        
+
         Args:
             total_execs: 总执行数
             exec_rate: 每秒执行数
@@ -77,13 +76,13 @@ class Evaluator:
             coverage: 当前覆盖率（边数）
         """
         now = datetime.now()
-        
+
         if self.start_time is None:
             self.start_time = now
             elapsed = 0
         else:
             elapsed = (now - self.start_time).total_seconds()
-        
+
         # 写入 CSV
         with open(self.csv_file, 'a', newline='') as f:
             writer = csv.writer(f)
@@ -95,21 +94,21 @@ class Evaluator:
                 total_crashes,
                 coverage
             ])
-    
-    def save_final_report(self, stats: Dict):
+
+    def save_final_report(self, stats: dict):
         """
         保存最终报告
-        
+
         Args:
             stats: 统计数据字典
         """
         report_file = self.output_dir / 'final_report.json'
-        
+
         with open(report_file, 'w') as f:
             json.dump(stats, f, indent=2)
-        
+
         print(f"[Evaluator] Final report saved to {report_file}")
-    
+
     def generate_plots(self):
         """
         生成所有统计图表
@@ -117,14 +116,14 @@ class Evaluator:
         if not MATPLOTLIB_AVAILABLE:
             print("[Evaluator] Skipping plots - matplotlib not available")
             return
-        
+
         # 读取时间序列数据
         if not self.csv_file.exists():
             print("[Evaluator] No timeline data to plot")
             return
-        
+
         data = {'timestamps': [], 'elapsed': [], 'execs': [], 'rate': [], 'crashes': [], 'coverage': []}
-        
+
         with open(self.csv_file, 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -134,20 +133,20 @@ class Evaluator:
                 data['rate'].append(float(row['exec_rate']))
                 data['crashes'].append(int(row['total_crashes']))
                 data['coverage'].append(int(row.get('coverage', 0)))
-        
+
         if len(data['elapsed']) == 0:
             print("[Evaluator] No data points to plot")
             return
-        
+
         # 生成图表
         self._plot_execution_growth(data)
         self._plot_exec_rate(data)
         self._plot_crashes(data)
         self._plot_coverage(data)
-        
+
         print(f"[Evaluator] Plots saved to {self.output_dir}")
-    
-    def _plot_execution_growth(self, data: Dict[str, List]):
+
+    def _plot_execution_growth(self, data: dict[str, list]):
         """绘制执行数增长曲线"""
         plt.figure(figsize=(10, 6))
         plt.plot(data['elapsed'], data['execs'], 'b-', linewidth=2)
@@ -158,8 +157,8 @@ class Evaluator:
         plt.tight_layout()
         plt.savefig(self.output_dir / 'plot_executions.png', dpi=150)
         plt.close()
-    
-    def _plot_exec_rate(self, data: Dict[str, List]):
+
+    def _plot_exec_rate(self, data: dict[str, list]):
         """绘制执行速度曲线"""
         plt.figure(figsize=(10, 6))
         plt.plot(data['elapsed'], data['rate'], 'g-', linewidth=2)
@@ -170,8 +169,8 @@ class Evaluator:
         plt.tight_layout()
         plt.savefig(self.output_dir / 'plot_exec_rate.png', dpi=150)
         plt.close()
-    
-    def _plot_crashes(self, data: Dict[str, List]):
+
+    def _plot_crashes(self, data: dict[str, list]):
         """绘制崩溃发现曲线"""
         plt.figure(figsize=(10, 6))
         plt.plot(data['elapsed'], data['crashes'], 'r-', linewidth=2, marker='o')
@@ -183,7 +182,7 @@ class Evaluator:
         plt.savefig(self.output_dir / 'plot_crashes.png', dpi=150)
         plt.close()
 
-    def _plot_coverage(self, data: Dict[str, List]):
+    def _plot_coverage(self, data: dict[str, list]):
         """绘制覆盖率增长曲线"""
         plt.figure(figsize=(10, 6))
         plt.plot(data['elapsed'], data['coverage'], 'm-', linewidth=2)
@@ -200,10 +199,10 @@ class Evaluator:
 if __name__ == '__main__':
     import time
     import tempfile
-    
+
     with tempfile.TemporaryDirectory() as tmpdir:
         evaluator = Evaluator(tmpdir)
-        
+
         # 模拟记录
         for i in range(5):
             evaluator.record(
@@ -212,19 +211,19 @@ if __name__ == '__main__':
                 total_crashes=i
             )
             time.sleep(0.5)
-        
+
         # 保存最终报告
         evaluator.save_final_report({
             'total_execs': 400,
             'total_crashes': 4,
             'duration': 2.0
         })
-        
+
         # 显示 CSV 内容
         csv_path = Path(tmpdir) / 'timeline.csv'
         print(f"\n=== CSV Content ===")
         print(csv_path.read_text())
-        
+
         print(f"\n=== Final Report ===")
         report_path = Path(tmpdir) / 'final_report.json'
         print(report_path.read_text())

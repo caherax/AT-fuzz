@@ -6,9 +6,7 @@
 import sys
 import time
 import signal
-import random
 from pathlib import Path
-from typing import Optional
 
 from config import CONFIG
 from components.executor import TestExecutor
@@ -68,6 +66,47 @@ class Fuzzer:
         self._finalize()
         sys.exit(0)
 
+    def _process_seed(self, seed_data: bytes, is_initial: bool = False) -> bool:
+        """
+        执行并处理种子的通用方法
+
+        Args:
+            seed_data: 种子数据
+            is_initial: 是否是初始种子
+
+        Returns:
+            是否成功处理（未超过大小限制且成功执行）
+        """
+        # 检查种子大小
+        if len(seed_data) > CONFIG['max_seed_size']:
+            return False
+
+        # 执行种子
+        exec_result = self.executor.execute(seed_data)
+
+        # 监控执行结果（检测崩溃/hang/新覆盖率）
+        is_interesting = self.monitor.process_execution(seed_data, exec_result)
+
+        # 决定是否加入种子队列
+        should_add = is_initial or is_interesting  # 初始种子总是加入，变异种子仅在有趣时加入
+
+        if should_add:
+            coverage_bits = count_coverage_bits(exec_result.get('coverage'))
+            self.scheduler.add_seed(seed_data, coverage_bits, exec_result['exec_time'])
+
+        # 更新统计并打印新覆盖率
+        if is_interesting:
+            stats = self.monitor.stats
+            if stats['total_coverage_bits'] > self.last_coverage:
+                print(f"[+] New coverage: {stats['total_coverage_bits']} bits")
+                self.last_coverage = stats['total_coverage_bits']
+
+        # 定期输出统计信息和快照 (基于时间间隔)
+        if time.time() - self.last_snapshot_time >= CONFIG['log_interval']:
+            self._update_stats()
+
+        return True
+
     def load_initial_seeds(self):
         """加载初始种子"""
         if not self.seed_dir.exists():
@@ -87,20 +126,15 @@ class Fuzzer:
 
         print(f"[+] Loading {len(seed_files)} initial seeds...")
 
-        for seed_file in seed_files[:100]:  # 限制初始种子数量
+        # 使用队列总大小限制，让 scheduler 自动管理队列
+        max_seeds = CONFIG.get('max_seeds', 10000)
+        for seed_file in seed_files[:max_seeds]:
             if not seed_file.is_file():
                 continue
-
             try:
                 seed_data = seed_file.read_bytes()
-                if len(seed_data) > CONFIG['max_file_size']:
-                    continue
-
-                # 执行种子以获得初始覆盖率
-                exec_result = self.executor.execute(seed_data)
-                coverage_bits = count_coverage_bits(exec_result.get('coverage'))
-
-                self.scheduler.add_seed(seed_data, coverage_bits, exec_result['exec_time'])
+                # 使用统一的种子处理方法
+                self._process_seed(seed_data, is_initial=True)
             except Exception as e:
                 print(f"[!] Error loading seed {seed_file}: {e}")
                 continue
@@ -125,7 +159,7 @@ class Fuzzer:
         3. 测试结束后，生成报告和可视化图表
 
         Args:
-            duration_seconds: 模糊测试持续时间（秒），默认1小时
+            duration_seconds: 模糊测试持续时间（秒）
         """
         print(f"[+] Starting fuzzing on {self.target_id}...")
         print(f"[*] Duration: {duration_seconds}s ({duration_seconds/3600:.1f}h)")
@@ -133,7 +167,7 @@ class Fuzzer:
         print(f"[*] Args: {self.target_args}")
         print()
 
-        # 加载初始种子
+        # 先加载并处理初始种子
         self.load_initial_seeds()
 
         iteration = 0
@@ -150,29 +184,12 @@ class Fuzzer:
             # 每个种子执行多次变异（基于能量，但限制在合理范围）
             energy = max(1, min(16, int(seed.energy)))
             for _ in range(energy):
-                # 变异
-                mutant = Mutator.mutate(seed.data, 'havoc')
+                # 变异（使用配置的 havoc 迭代次数）
+                iterations = CONFIG.get('havoc_iterations', 16)
+                mutant = Mutator.mutate(seed.data, 'havoc', iterations=iterations)
 
-                # 执行
-                exec_result = self.executor.execute(mutant)
-
-                # 监控执行结果（会自动处理覆盖率）
-                is_interesting = self.monitor.process_execution(mutant, exec_result)
-
-                # 新覆盖？添加到种子库
-                if is_interesting:
-                    coverage_bits = count_coverage_bits(exec_result.get('coverage'))
-                    self.scheduler.add_seed(mutant, coverage_bits, exec_result['exec_time'])
-
-                    # 更新统计
-                    stats = self.monitor.stats
-                    if stats['total_coverage_bits'] > self.last_coverage:
-                        print(f"[+] New coverage: {stats['total_coverage_bits']} bits")
-                        self.last_coverage = stats['total_coverage_bits']
-
-            # 4. 定期输出统计信息和快照 (基于时间间隔)
-            if time.time() - self.last_snapshot_time >= CONFIG['log_interval']:
-                self._update_stats()
+                # 使用统一的种子处理方法（变异种子仅在有趣时加入队列）
+                self._process_seed(mutant)
 
         # 模糊测试完成
         self._finalize()
@@ -198,7 +215,8 @@ class Fuzzer:
               f"Execs: {stats['total_execs']:8d} | "
               f"Rate: {exec_rate:6.1f}/s | "
               f"Coverage: {stats['total_coverage_bits']:5d} | "
-              f"Crashes: {stats['total_crashes']:3d}")
+              f"Crashes: {stats['total_crashes']:3d} | "
+              f"Hangs: {stats['total_hangs']:3d}")
 
         # 保存快照数据
         self.evaluator.record(
@@ -228,7 +246,9 @@ class Fuzzer:
             'duration': elapsed,
             'total_execs': stats['total_execs'],
             'total_crashes': stats['total_crashes'],
+            'total_hangs': stats['total_hangs'],
             'unique_crashes': len(stats['unique_crashes']),
+            'unique_hangs': len(stats['unique_hangs']),
             'total_coverage_bits': stats['total_coverage_bits'],
             'total_seeds': len(self.scheduler.seeds),
             'exec_rate': stats['total_execs'] / elapsed if elapsed > 0 else 0
@@ -250,7 +270,12 @@ def main():
     """主函数"""
     import argparse
 
-    parser = argparse.ArgumentParser(description='Fuzzer for mutation-based fuzzing')
+    parser = argparse.ArgumentParser(
+        description='Fuzzer for mutation-based fuzzing',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    # 必选参数
     parser.add_argument('--target', required=True, help='Target program path')
     parser.add_argument('--args', required=True, help='Target program arguments')
     parser.add_argument('--seeds', required=True, help='Seed directory')
@@ -258,7 +283,44 @@ def main():
     parser.add_argument('--duration', type=int, default=3600, help='Fuzzing duration (seconds)')
     parser.add_argument('--target-id', default='unknown', help='Target ID')
 
+    # CONFIG 参数覆盖
+    parser.add_argument('--timeout', type=float, help='Execution timeout (seconds)')
+    parser.add_argument('--mem-limit', type=int, help='Memory limit for target (MB)')
+    parser.add_argument('--bitmap-size', type=int, help='Coverage bitmap size')
+    parser.add_argument('--max-seed-size', type=int, help='Max seed size (bytes) for initial and mutated seeds')
+    parser.add_argument('--havoc-iterations', type=int, help='Havoc mutation iterations (higher = more mutations)')
+    parser.add_argument('--seed-sort-strategy', choices=['energy', 'fifo'], help='Seed scheduling strategy')
+    parser.add_argument('--max-seeds', type=int, help='Max seed count')
+    parser.add_argument('--max-seeds-memory', type=int, help='Max seed set memory (MB)')
+    parser.add_argument('--log-interval', type=int, help='Log update interval (seconds)')
+    parser.add_argument('--stderr-max-len', type=int, help='Max stderr length (bytes)')
+    parser.add_argument('--crash-info-max-len', type=int, help='Max crash info stderr length (bytes)')
+
     args = parser.parse_args()
+
+    # 用命令行参数覆盖 CONFIG
+    if args.timeout is not None:
+        CONFIG['timeout'] = args.timeout
+    if args.mem_limit is not None:
+        CONFIG['mem_limit'] = args.mem_limit
+    if args.bitmap_size is not None:
+        CONFIG['bitmap_size'] = args.bitmap_size
+    if args.havoc_iterations is not None:
+        CONFIG['havoc_iterations'] = args.havoc_iterations
+    if args.seed_sort_strategy is not None:
+        CONFIG['seed_sort_strategy'] = args.seed_sort_strategy
+    if args.max_seed_size is not None:
+        CONFIG['max_seed_size'] = args.max_seed_size
+    if args.max_seeds is not None:
+        CONFIG['max_seeds'] = args.max_seeds
+    if args.max_seeds_memory is not None:
+        CONFIG['max_seeds_memory'] = args.max_seeds_memory
+    if args.log_interval is not None:
+        CONFIG['log_interval'] = args.log_interval
+    if args.stderr_max_len is not None:
+        CONFIG['stderr_max_len'] = args.stderr_max_len
+    if args.crash_info_max_len is not None:
+        CONFIG['crash_info_max_len'] = args.crash_info_max_len
 
     # 创建模糊器
     fuzzer = Fuzzer(

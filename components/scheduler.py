@@ -5,9 +5,8 @@
 已实现：基于能量的大根堆优先队列调度 (O(log n))
 """
 
-import random
 import heapq
-from typing import List, Optional
+from typing import Optional
 from dataclasses import dataclass, field
 
 
@@ -43,9 +42,13 @@ class SeedScheduler:
 
     def __init__(self):
         """初始化调度器"""
-        self.seeds: List[Seed] = []  # Heap
+        from config import CONFIG
+        self.strategy = CONFIG.get('seed_sort_strategy', 'energy')
+        self.seeds: list[Seed] = []  # Heap (for 'energy') or Queue (for 'fifo')
         self.total_exec_time = 0.0
         self.total_coverage = 0
+        self.fifo_index = 0  # FIFO 模式下的索引
+        self.total_memory = 0  # 种子库当前内存使用（字节）
 
     def add_seed(self, seed_data: bytes, coverage_bits: int = 0, exec_time: float = 0.0):
         """
@@ -56,6 +59,8 @@ class SeedScheduler:
             coverage_bits: 覆盖率位数
             exec_time: 执行时间
         """
+        from config import CONFIG
+
         seed = Seed(
             data=seed_data,
             coverage_bits=coverage_bits,
@@ -65,32 +70,62 @@ class SeedScheduler:
         # 更新全局统计
         self.total_exec_time += exec_time
         self.total_coverage += coverage_bits
+        self.total_memory += len(seed_data)
 
-        self._calculate_energy(seed)
-        heapq.heappush(self.seeds, seed)
+        # 根据策略添加种子
+        if self.strategy == 'fifo':
+            # FIFO 模式：直接追加到列表
+            self.seeds.append(seed)
+        else:
+            # Energy 模式：计算能量并加入堆
+            self._calculate_energy(seed)
+            heapq.heappush(self.seeds, seed)
+
+        # 限制队列大小，优先检查内存限制
+        max_memory_mb = CONFIG.get('max_seeds_memory', 256)
+        max_memory_bytes = max_memory_mb * 1024 * 1024
+        max_queue_size = CONFIG.get('max_queue_size', 10000)
+
+        # 检查是否超过内存限制或数量限制
+        while self.seeds and (self.total_memory > max_memory_bytes
+                              or len(self.seeds) > max_queue_size):
+            if self.strategy == 'fifo':
+                # FIFO 模式：移除最旧的种子（队首）
+                removed_seed = self.seeds.pop(0)
+                self.total_memory -= len(removed_seed.data)
+                # 调整索引
+                if self.fifo_index > 0:
+                    self.fifo_index -= 1
+            else:
+                # Energy 模式：移除能量最低的种子
+                # 找到能量最小的种子（sort_index 最大，因为是负值）
+                min_seed = max(self.seeds, key=lambda s: s.sort_index) #TODO: 优化为 O(log n)
+                self.seeds.remove(min_seed)
+                heapq.heapify(self.seeds)
+                self.total_memory -= len(min_seed.data)
         # print(f"[Scheduler] Added seed, total: {len(self.seeds)}")
 
     def _calculate_energy(self, seed: Seed):
         """
         计算种子能量（参考 AFL++ 的 calculate_score 函数）
-        
+
         算法原理：
         该函数实现了基于质量的种子优先级评分机制，核心思想是优先测试
         "性价比高"的种子（覆盖率高且执行快），同时防止某些种子被过度测试。
-        
+
         评分策略分为三个维度：
         1. 执行速度因子：相对于平均执行时间，越快的种子获得越高的分数
            - 原理：快速执行的种子可以在相同时间内产生更多变异，提高吞吐量
            - 分档：10倍慢->10分, 2倍慢->50分, 2倍快->150分, 4倍快->300分
-           
+
         2. 覆盖率因子：相对于平均覆盖率，覆盖更广的种子获得更高权重
            - 原理：高覆盖率的种子更有可能通过变异发现新路径
            - 分档：30%平均->3倍, 50%平均->2倍, 低于平均->0.25-0.75倍
-           
+
         3. 衰减机制：执行次数越多，能量越低（模拟 AFL++ 的 FAST 调度）
            - 原理：防止"饥饿"，确保所有种子都有机会被测试
            - 公式：score = score / (1 + 0.2 * exec_count)
-        
+
         返回值：
             能量分数（1-10000），直接影响该种子在堆中的优先级
         """
@@ -157,7 +192,11 @@ class SeedScheduler:
 
     def select_next(self) -> Optional[Seed]:
         """
-        选择下一个种子（取堆顶，即能量最高）
+        选择下一个种子
+
+        策略：
+        - 'energy': 取堆顶（能量最高）
+        - 'fifo': 按入队顺序循环选择
 
         Returns:
             选中的种子，如果队列为空返回 None
@@ -165,18 +204,24 @@ class SeedScheduler:
         if not self.seeds:
             return None
 
-        # 取出能量最高的种子 (O(log n))
-        seed = heapq.heappop(self.seeds)
+        if self.strategy == 'fifo':
+            # FIFO 模式：循环遍历队列
+            seed = self.seeds[self.fifo_index % len(self.seeds)]
+            self.fifo_index += 1
+            seed.exec_count += 1
+            return seed
+        else:
+            # Energy 模式：取出能量最高的种子 (O(log n))
+            seed = heapq.heappop(self.seeds)
+            seed.exec_count += 1
 
-        seed.exec_count += 1
+            # 重新计算能量（会因为 exec_count 增加而降低）
+            self._calculate_energy(seed)
 
-        # 重新计算能量（会因为 exec_count 增加而降低）
-        self._calculate_energy(seed)
+            # 放回堆中
+            heapq.heappush(self.seeds, seed)
 
-        # 放回堆中
-        heapq.heappush(self.seeds, seed)
-
-        return seed
+            return seed
 
     def get_stats(self):
         """获取统计信息"""

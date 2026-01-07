@@ -19,22 +19,22 @@
 
 系统由六个核心组件构成：
 
-1. **测试执行组件** (`components/executor.py`)  
+1. **测试执行组件** (`components/executor.py`)
    负责启动子进程，管理环境变量 (`__AFL_SHM_ID`, `AFL_NO_FORKSRV`)，处理超时和崩溃检测。
 
-2. **执行结果监控组件** (`components/monitor.py`)  
+2. **执行结果监控组件** (`components/monitor.py`)
    解析执行结果，追踪全局覆盖率，保存崩溃样本。
 
-3. **变异组件** (`components/mutator.py`)  
+3. **变异组件** (`components/mutator.py`)
    提供多种变异算子，支持堆叠变异 (Havoc)。
 
-4. **种子调度组件** (`components/scheduler.py`)  
+4. **种子调度组件** (`components/scheduler.py`)
    维护种子优先队列（大根堆），根据能量评分选择种子 (O(log n))。
 
-5. **能量调度组件** (`components/scheduler.py`)  
+5. **能量调度组件** (`components/scheduler.py`)
    根据种子质量（覆盖率、执行时间、执行次数）动态计算能量，参考 AFL++ 的多调度策略。
 
-6. **评估组件** (`components/evaluator.py`)  
+6. **评估组件** (`components/evaluator.py`)
    记录运行时数据，生成 CSV 报告和 Matplotlib 图表。
 
 ---
@@ -144,6 +144,24 @@ python3 fuzzer.py \
     --seeds /path/to/seeds \
     --output output/test_run \
     --duration 600
+
+你也可以通过命令行覆盖 `config.py` 中的大多数参数，例如：
+
+```bash
+python3 fuzzer.py \
+    --target /path/to/your_binary \
+    --args "your_binary -a @@" \
+    --seeds /path/to/seeds \
+    --output output/test_run \
+    --duration 600 \
+    --timeout 2.0 \
+    --havoc-iterations 20 \
+    --max-seed-size $((512 * 1024))
+```
+
+说明：`--max-seed-size` 的单位是 **字节**。
+
+该脚本会根据不同目标（例如是否 `@@` 文件输入、解析速度、典型输入规模）设置 `--timeout` / `--havoc-iterations` / `--max-seed-size`。
 ```
 
 ---
@@ -156,6 +174,7 @@ python3 fuzzer.py \
 output/
 └── <test_name>/
     ├── crashes/               # 发现的崩溃样本 (唯一哈希)
+    ├── hangs/                 # 发现的超时样本 (唯一哈希)
     ├── queue/                 # 触发新覆盖率的种子
     ├── timeline.csv           # 时间序列数据
     ├── stats.json             # 统计摘要
@@ -243,10 +262,16 @@ docker run -it \
 编辑 `config.py` 可调整：
 
 *   **`timeout`**：单次执行超时时间（秒）。
+*   **`mem_limit`**：目标程序内存限制（MB）。
 *   **`log_interval`**：状态栏/日志更新频率（秒）。
 *   **`bitmap_size`**：覆盖率位图大小（默认 65536）。
-*   **`max_file_size`**：种子文件最大尺寸（字节）。
-*   **`havoc_divider`**：变异强度因子。
+*   **`max_seed_size`**：种子最大大小（字节），限制初始种子和变异后的种子大小。
+*   **`havoc_iterations`**：Havoc 变异迭代次数，控制变异强度（默认 16，越大变异越多）。
+*   **`seed_sort_strategy`**：种子调度策略（`energy` / `fifo`）。
+*   **`max_seeds`**：种子队列最大数量。
+*   **`max_seeds_memory`**：种子队列最大内存（MB）。
+*   **`stderr_max_len`**：单次执行 stderr 保存上限（字节）。
+*   **`crash_info_max_len`**：崩溃/超时样本记录中 stderr 保存上限（字节）。
 
 ---
 

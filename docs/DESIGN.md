@@ -17,7 +17,7 @@ AFL/AFL++ 是覆盖率引导模糊测试的经典实现。本项目（AT-Fuzz）
 
 ### 1.3 技术选型
 
-- **开发语言**：Python 3（3.8+）
+- **开发语言**：Python 3（3.10+）
    - 优势：迭代快、代码可读性好，适合做完整流程验证
    - 代价：性能不如原生 C/C++ fuzzer，需要在实现上减少不必要的开销
 
@@ -150,7 +150,7 @@ class TestExecutor:
       self,
       target_path: str,
       target_args: str,
-      timeout: int = None,
+      timeout: float | None = None,
       use_coverage: bool = False,
    ) -> None: ...
 
@@ -317,6 +317,8 @@ AT-Fuzz 通过 System V 共享内存读取 AFL++ 的覆盖率 bitmap。核心思
 #### 4.4.1 Havoc 变异
 
 Havoc 通过随机堆叠多种算子生成更“野”的输入，用来快速扩大搜索空间；当一些确定性变异开始边际收益下降时，Havoc 往往更有效。
+
+实现上，Havoc 的“堆叠次数”通过 `config.py` 的 `havoc_iterations` 控制，并支持用命令行参数 `--havoc-iterations` 覆盖。主循环在生成变异样本时，会把该配置值传递给 `Mutator.mutate(..., iterations=...)`，从而真正影响变异强度。
 
 #### 4.4.2 Splice 变异
 
