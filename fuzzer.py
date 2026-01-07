@@ -55,6 +55,7 @@ class Fuzzer:
         self.start_time = time.time()
         self.last_snapshot_time = self.start_time
         self.last_coverage = 0
+        self.last_execs = 0  # 上次统计的执行次数
         self.seed_dir = Path(seed_dir)
         
         # 信号处理
@@ -76,7 +77,9 @@ class Fuzzer:
             self.scheduler.add_seed(b'', 0, 0.1)
             return
         
-        seed_files = list(self.seed_dir.glob('*'))
+        # 递归寻找所有的文件作为种子
+        seed_files = [p for p in self.seed_dir.glob('**/*') if p.is_file()]
+        
         if not seed_files:
             print(f"[!] No seeds found in {self.seed_dir}")
             self.scheduler.add_seed(b'', 0, 0.1)
@@ -167,42 +170,43 @@ class Fuzzer:
                         print(f"[+] New coverage: {stats['total_coverage_bits']} bits")
                         self.last_coverage = stats['total_coverage_bits']
             
-            # 4. 定期输出统计信息和快照
-            if iteration % (CONFIG['coverage_update_interval'] // 10) == 0:
-                self._log_progress()
-                self._save_snapshot()
+            # 4. 定期输出统计信息和快照 (基于时间间隔)
+            if time.time() - self.last_snapshot_time >= CONFIG['log_interval']:
+                self._update_stats()
         
         # 模糊测试完成
         self._finalize()
     
-    def _log_progress(self):
-        """输出进度信息"""
-        elapsed = time.time() - self.start_time
-        stats = self.monitor.stats
-        exec_rate = stats['total_execs'] / elapsed if elapsed > 0 else 0
+    def _update_stats(self):
+        """更新统计信息（输出日志并保存快照）"""
+        current_time = time.time()
+        elapsed_total = current_time - self.start_time
+        elapsed_recent = current_time - self.last_snapshot_time
         
-        print(f"[*] Time: {elapsed/3600:6.2f}h | "
+        stats = self.monitor.stats
+        
+        # 计算近期执行速率（自上次更新以来）
+        recent_execs = stats['total_execs'] - self.last_execs
+        exec_rate = recent_execs / elapsed_recent if elapsed_recent > 0 else 0
+        
+        # 输出进度日志
+        print(f"[*] Time: {elapsed_total/3600:6.2f}h | "
               f"Execs: {stats['total_execs']:8d} | "
               f"Rate: {exec_rate:6.1f}/s | "
               f"Coverage: {stats['total_coverage_bits']:5d} | "
               f"Crashes: {stats['total_crashes']:3d}")
-    
-    def _save_snapshot(self):
-        """保存时间快照"""
-        elapsed = time.time() - self.start_time
-        stats = self.monitor.stats
         
-        if elapsed > 0:
-            exec_rate = stats['total_execs'] / elapsed
-        else:
-            exec_rate = 0
-        
+        # 保存快照数据
         self.evaluator.record(
             total_execs=stats['total_execs'],
             exec_rate=exec_rate,
             total_crashes=stats['total_crashes'],
             coverage=stats['total_coverage_bits']
         )
+        
+        # 更新追踪变量
+        self.last_snapshot_time = current_time
+        self.last_execs = stats['total_execs']
     
     def _finalize(self):
         """完成模糊测试，保存结果"""
