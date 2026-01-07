@@ -3,6 +3,7 @@
 集成所有 6 个组件，实现核心模糊测试循环
 """
 
+import os
 import sys
 import time
 import signal
@@ -116,8 +117,11 @@ class Fuzzer:
             self.scheduler.add_seed(b'', 0, 0.1)
             return
 
-        # 递归寻找所有的文件作为种子
-        seed_files = [p for p in self.seed_dir.glob('**/*') if p.is_file()]
+        # 递归寻找所有的文件作为种子（followlinks=True 自动处理符号链接）
+        seed_files = []
+        for dirpath, _, filenames in os.walk(self.seed_dir, followlinks=True):
+            for filename in filenames:
+                seed_files.append(Path(dirpath) / filename)
 
         if not seed_files:
             print(f"[!] No seeds found in {self.seed_dir}")
