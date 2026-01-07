@@ -4,22 +4,22 @@
 
 ### 1.1 项目背景
 
-模糊测试（Fuzzing）是一种自动化软件测试技术，通过向目标程序输入大量随机或半随机数据，监控程序行为以发现漏洞和崩溃。传统的随机模糊测试（黑盒模糊测试）效率较低，而覆盖率引导的模糊测试（灰盒模糊测试）通过实时获取代码覆盖率信息，能够智能地引导测试用例生成，显著提高了测试效率。
+模糊测试（Fuzzing）通过持续向目标程序喂入大量输入并监控异常行为，来发现崩溃与潜在漏洞。相比纯随机的黑盒方式，覆盖率引导（灰盒）能够利用运行时反馈，把计算资源更多投入到“更可能走到新路径”的输入上。
 
-AFL（American Fuzzy Lop）及其后继者 AFL++ 是工业界和学术界广泛使用的覆盖率引导模糊测试工具，在漏洞挖掘领域取得了巨大成功。本项目（AT-Fuzz）基于 AFL++ 的核心设计理念，使用 Python 语言实现了一个完整的覆盖率引导模糊测试框架。
+AFL/AFL++ 是覆盖率引导模糊测试的经典实现。本项目（AT-Fuzz）参考 AFL++ 的核心思路，用 Python 实现一个可运行、可复现实验结果的灰盒变异式模糊测试框架。
 
 ### 1.2 项目目标
 
-1. 实现一个功能完整的覆盖率引导模糊测试工具
-2. 理解模糊测试的核心算法和数据结构
-3. 掌握与编译器插桩工具（AFL++）的集成方法
-4. 验证工具在真实程序上的有效性（10个基准测试目标）
+1. 实现一个可用的覆盖率引导模糊测试工具（完整主循环、崩溃保存、统计输出）
+2. 跑通覆盖率反馈、种子调度、变异策略等关键机制
+3. 掌握与 AFL++ 插桩程序通过共享内存交互的方法
+4. 在多个真实目标上验证可用性
 
 ### 1.3 技术选型
 
-- **开发语言**：Python 3.7+
-  - 优势：开发效率高，代码可读性强，便于快速迭代
-  - 劣势：执行速度相比 C/C++ 较慢（通过优化算法和数据结构弥补）
+- **开发语言**：Python 3（3.8+）
+   - 优势：迭代快、代码可读性好，适合做完整流程验证
+   - 代价：性能不如原生 C/C++ fuzzer，需要在实现上减少不必要的开销
 
 - **插桩工具**：AFL++ (afl-cc/afl-c++)
   - 提供编译时代码插桩
@@ -74,8 +74,8 @@ AFL（American Fuzzy Lop）及其后继者 AFL++ 是工业界和学术界广泛�
 #### 辅助功能
 
 1. **目标程序构建**
-   - 提供批量构建脚本
-   - 自动化处理特殊项目（mjs, readpng）
+   - 依赖 AFL++ 编译器对目标源代码进行插桩。
+   - 确保生成的位置无关代码和共享内存通信接口正常工作。
 
 2. **种子准备**
    - 从 AFL++ testcases 和项目自带样本中提取种子
@@ -87,8 +87,8 @@ AFL（American Fuzzy Lop）及其后继者 AFL++ 是工业界和学术界广泛�
 ### 2.2 非功能性需求
 
 1. **性能**
-   - 执行速度目标：50+ execs/sec（Python 实现的合理水平）
-   - 内存占用：控制在合理范围（< 1GB）
+   - 执行速度目标：100+ execs/sec（Python 实现的合理水平）
+   - 内存占用：控制在合理范围
 
 2. **可靠性**
    - 支持长时间运行（24小时无异常）
@@ -141,148 +141,119 @@ AT-Fuzz 采用模块化设计，将模糊测试流程分解为六个核心组件
 
 #### 组件1：测试执行器 (TestExecutor)
 
-**职责**：
-- 启动目标程序的子进程
-- 管理输入输出（文件或 stdin）
-- 设置环境变量（共享内存 ID）
-- 超时控制和信号捕获
+**职责**：把输入喂给目标程序并拿到一次执行的完整结果（退出码/信号、耗时、stdout/stderr，以及可选的覆盖率 bitmap）。
 
-**关键接口**：
+**主要接口**（对应实现：[components/executor.py](../components/executor.py)）：
 ```python
 class TestExecutor:
-    def __init__(target_path, target_args, timeout, use_coverage)
-    def execute(input_data: bytes) -> Dict
-    def cleanup()
+   def __init__(
+      self,
+      target_path: str,
+      target_args: str,
+      timeout: int = None,
+      use_coverage: bool = False,
+   ) -> None: ...
+
+   def execute(self, input_data: bytes) -> dict: ...
+   def cleanup(self) -> None: ...
 ```
 
-**核心逻辑**：
-1. 将输入写入临时文件
-2. 构建命令行（替换 `@@` 或使用 stdin）
-3. 设置环境变量：`__AFL_SHM_ID`, `AFL_NO_FORKSRV`
-4. 执行子进程，捕获返回码、执行时间、覆盖率
-5. 判断崩溃（返回码 77/128+/负数）
-
-**技术要点**：
-- 使用 `/tmp` 作为临时目录（内存文件系统，加速 I/O）
-- 配置 ASan 使用特殊退出码（77）区分崩溃和正常错误
-- 通过 `subprocess.run()` 的 `timeout` 参数实现超时
+**实现要点**：
+- 支持 `@@` 文件参数和 stdin 两种输入方式
+- 通过 `__AFL_SHM_ID` 向目标进程传递共享内存 ID
+- 使用超时限制避免 hang，并在返回码/信号上做崩溃判定（含 ASan exitcode）
 
 #### 组件2：执行监控器 (ExecutionMonitor)
 
-**职责**：
-- 处理每次执行的结果
-- 维护全局覆盖率 bitmap
-- 检测和保存崩溃
-- 记录统计数据
+**职责**：处理每次执行的结果：更新全局覆盖率、判断是否产生新路径、保存崩溃样本/新覆盖样本，并累计统计数据。
 
-**关键接口**：
+**主要接口**（对应实现：[components/monitor.py](../components/monitor.py)）：
 ```python
 class ExecutionMonitor:
-    def __init__(output_dir, use_coverage)
-    def process_execution(input_data, exec_result) -> bool
-    def save_stats_to_file()
+   def __init__(self, output_dir: str, use_coverage: bool = False) -> None: ...
+   def process_execution(self, input_data: bytes, exec_result: dict) -> bool: ...
+   def get_current_stats(self) -> dict: ...
+   def save_stats_to_file(self) -> None: ...
 ```
 
-**核心逻辑**：
-1. 判断是否为崩溃：检查 `crashed` 标志
-2. 计算崩溃哈希：使用 stderr 的 MD5（去重）
-3. 更新全局覆盖率：按位或合并新的 bitmap
-4. 检测新覆盖：与全局 bitmap 比较
-5. 保存有趣输入：崩溃、新覆盖、超时
-
-**数据结构**：
-```python
-global_coverage: bytearray(65536)  # 全局覆盖率位图
-unique_crashes: set                # 唯一崩溃哈希集合
-stats: dict                        # 统计数据
-```
+**实现要点**：
+- 覆盖率用全局 bitmap 维护，增量比较判断“新覆盖”
+- 崩溃样本做去重（例如基于 stderr 哈希）；这种方式简单有效，但并非严格等价于“漏洞唯一性”
 
 #### 组件3：变异器 (Mutator)
 
-**职责**：
-- 实现多种变异算子
-- 提供 Havoc 组合变异
-- 支持 Splice 种子拼接
+**职责**：对输入做变异，生成候选测试用例。
 
-**关键接口**：
+**主要接口**（对应实现：[components/mutator.py](../components/mutator.py)）：
 ```python
 class Mutator:
-    @staticmethod
-    def bit_flip(data, flip_count) -> bytes
-    @staticmethod
-    def havoc(data, iterations) -> bytes
-    @staticmethod
-    def splice(data1, data2) -> bytes
+   @staticmethod
+   def mutate(data: bytes, strategy: str = 'havoc', **kwargs) -> bytes: ...
+
+   # 常用算子（示例）
+   @staticmethod
+   def havoc(data: bytes, iterations: int = 16) -> bytes: ...
+   @staticmethod
+   def bit_flip(data: bytes, flip_count: int = 1) -> bytes: ...
+   @staticmethod
+   def byte_flip(data: bytes, flip_count: int = 1) -> bytes: ...
+   @staticmethod
+   def arithmetic(data: bytes, max_val: int = 35) -> bytes: ...
+   @staticmethod
+   def interesting_values(data: bytes) -> bytes: ...
+   @staticmethod
+   def insert(data: bytes) -> bytes: ...
+   @staticmethod
+   def delete(data: bytes) -> bytes: ...
+   @staticmethod
+   def splice(data1: bytes, data2: bytes) -> bytes: ...
 ```
 
-**变异算子**：
-1. **Bit Flip**：随机翻转若干比特
-2. **Byte Flip**：随机翻转若干字节
-3. **Arithmetic**：对字节进行加减操作（±1 到 ±35）
-4. **Interesting Values**：替换为特殊值（0, -1, 0x7F, 0xFF, 0x100）
-5. **Insert**：随机插入字节
-6. **Delete**：随机删除字节
-7. **Havoc**：随机堆叠上述变异（默认16次）
-8. **Splice**：从两个种子中各取一部分拼接
+**实现要点**：
+- 基础算子：bit/byte 翻转、算术变异、interesting values、插入/删除等
+- Havoc：随机堆叠多种变异，提升多样性
+- Splice：从两个种子中切片拼接，适合结构化输入的探索
 
 #### 组件4&5：种子调度器 (SeedScheduler)
 
-**职责**：
-- 维护种子队列（大根堆）
-- 计算种子能量（优先级）
-- 选择下一个测试种子
+**职责**：管理种子队列，并决定下一次优先 fuzz 哪个种子。
 
-**关键接口**：
+**主要接口**（对应实现：[components/scheduler.py](../components/scheduler.py)）：
 ```python
+@dataclass(order=True)
+class Seed:
+   data: bytes
+   exec_count: int = 0
+   coverage_bits: int = 0
+   exec_time: float = 0.0
+   energy: float = 1.0
+
 class SeedScheduler:
-    def __init__()
-    def add_seed(seed_data, coverage_bits, exec_time)
-    def select_next() -> Seed
+   def __init__(self) -> None: ...
+   def add_seed(self, seed_data: bytes, coverage_bits: int = 0, exec_time: float = 0.0) -> None: ...
+   def select_next(self): ...
+   def get_stats(self) -> dict: ...
 ```
 
-**调度算法**（参考 AFL++ 的 calculate_score）：
-```
-perf_score = 100  # 基础分
-
-# 1. 执行速度因子
-if exec_time < avg * 0.25: perf_score = 300
-elif exec_time < avg * 0.5: perf_score = 200
-...
-
-# 2. 覆盖率因子
-if coverage > avg * 3: perf_score *= 3
-elif coverage > avg * 2: perf_score *= 2
-...
-
-# 3. 衰减因子
-perf_score /= 1 + 0.2 * exec_count
-```
-
-**数据结构**：
-- 使用 Python 的 `heapq` 实现最小堆
-- 通过 `sort_index = -energy` 转换为最大堆
-- 每次 `select_next()` 复杂度：O(log n)
+**实现要点**：
+- 以“能量/优先级”对种子排序（覆盖率贡献、执行速度、已执行次数等因素综合）
+- 使用堆结构保证选择与更新都是 $O(\log n)$
+- 引入衰减/公平性，避免少数种子长期霸占执行预算
 
 #### 组件6：评估器 (Evaluator)
 
-**职责**：
-- 记录时间序列数据
-- 生成 CSV 和 JSON 报告
-- 绘制可视化图表
+**职责**：把运行过程的指标记录下来，并在结束时输出可复盘的数据与图表。
 
-**关键接口**：
+**主要接口**（对应实现：[components/evaluator.py](../components/evaluator.py)）：
 ```python
 class Evaluator:
-    def __init__(output_dir)
-    def record(total_execs, exec_rate, total_crashes, coverage)
-    def save_final_report(stats)
-    def generate_plots()
+   def __init__(self, output_dir: str) -> None: ...
+   def record(self, total_execs: int, exec_rate: float, total_crashes: int, coverage: int = 0) -> None: ...
+   def save_final_report(self, stats: dict) -> None: ...
+   def generate_plots(self) -> None: ...
 ```
 
-**输出文件**：
-- `timeline.csv`：时间序列数据
-- `final_report.json`：最终统计报告
-- `plot_*.png`：可视化图表（覆盖率、执行速度、崩溃）
+**输出**：时间序列（CSV）、汇总统计（JSON）、以及覆盖率/执行速率/崩溃数量等曲线图。
 
 ### 3.3 数据流图
 
@@ -308,45 +279,9 @@ class Evaluator:
 
 ### 4.1 共享内存通信
 
-#### 4.1.1 技术背景
+AT-Fuzz 通过 System V 共享内存读取 AFL++ 的覆盖率 bitmap。核心思路是：主进程创建并映射共享内存，把 `__AFL_SHM_ID` 传给子进程，执行结束后读取 bitmap 并与全局覆盖率做比较。
 
-AFL++ 插桩的程序在运行时会将覆盖率信息写入共享内存（bitmap），模糊器需要读取这些数据来判断是否发现新路径。Python 没有原生的共享内存 API（Python 3.8+ 有 `multiprocessing.shared_memory`，但与 AFL++ 的 System V SHM 不兼容），因此需要通过 `ctypes` 调用 C 库函数。
-
-#### 4.1.2 实现细节
-
-1. **创建共享内存**：
-```python
-libc = ctypes.CDLL("libc.so.6")
-shm_id = libc.shmget(IPC_PRIVATE, bitmap_size, IPC_CREAT | 0o600)
-```
-
-2. **映射到进程地址空间**：
-```python
-shm_addr = libc.shmat(shm_id, None, 0)
-```
-
-3. **传递给子进程**：
-```python
-env['__AFL_SHM_ID'] = str(shm_id)
-env['AFL_NO_FORKSRV'] = '1'  # 关键：禁用 forkserver
-```
-
-4. **读取覆盖率**：
-```python
-bitmap = ctypes.string_at(shm_addr, bitmap_size)
-```
-
-5. **清理资源**：
-```python
-libc.shmdt(shm_addr)
-libc.shmctl(shm_id, IPC_RMID, None)
-```
-
-#### 4.1.3 技术难点
-
-**问题**：AFL++ 默认使用 forkserver 模式，这种模式下 Python 难以与其通信。
-
-**解决方案**：通过环境变量 `AFL_NO_FORKSRV=1` 强制目标程序每次都重新执行（exec），虽然牺牲了一些性能，但大大简化了实现，且对 Python 实现的模糊器来说，这个开销在可接受范围内。
+实现上有一个重要取舍：为了让 Python 侧逻辑更简单，本项目通过 `AFL_NO_FORKSRV=1` 禁用 forkserver。这样每次执行都走一次 exec，性能会有损失，但换来更直接、可控的执行模型。
 
 ### 4.2 崩溃检测机制
 
@@ -363,15 +298,7 @@ libc.shmctl(shm_id, IPC_RMID, None)
 
 #### 4.2.2 去重策略
 
-使用 stderr 的哈希值作为崩溃的唯一标识：
-```python
-crash_hash = hashlib.md5(stderr).hexdigest()[:8]
-if crash_hash not in unique_crashes:
-    unique_crashes.add(crash_hash)
-    # 保存崩溃输入
-```
-
-这种方法能够有效过滤重复崩溃，但也有局限性（同一漏洞的不同触发路径可能产生不同 stderr）。
+崩溃去重采用“可实现、够用”的策略：例如对 stderr 做哈希，重复的崩溃不重复落盘。它能明显减少噪声，但不保证严格等价于“漏洞唯一”。
 
 ### 4.3 能量调度算法
 
@@ -383,67 +310,19 @@ if crash_hash not in unique_crashes:
 
 #### 4.3.2 算法实现
 
-参考 AFL++ 的 `calculate_score` 函数，实现三维评分：
-
-```python
-def _calculate_energy(seed):
-    perf_score = 100
-    
-    # 维度1：执行速度（快者优先）
-    if seed.exec_time * 4 < avg_exec_us:
-        perf_score = 300
-    # ... 其他分档
-    
-    # 维度2：覆盖率（高者优先）
-    if seed.coverage_bits * 0.3 > avg_bitmap_size:
-        perf_score *= 3
-    # ... 其他分档
-    
-    # 维度3：衰减（防止过度测试）
-    perf_score /= (1 + 0.2 * seed.exec_count)
-    
-    return perf_score
-```
-
-#### 4.3.3 堆优化
-
-使用 Python 的 `heapq` 模块（最小堆）：
-- 通过 `sort_index = -energy` 实现最大堆
-- `heappop()` 取出能量最高的种子
-- 更新能量后 `heappush()` 重新入堆
+能量计算参考 AFL++ 的思路：更快的样本、更能带来覆盖增长的样本，会拿到更高的执行预算；同时对已经跑了很多次的样本做衰减。实现上用堆维护优先级，保证选择与更新的代价可控。
 
 ### 4.4 变异策略
 
 #### 4.4.1 Havoc 变异
 
-Havoc 是 AFL++ 的核心变异策略，通过随机堆叠多种变异产生高度多样化的输入。
-
-```python
-def havoc(data, iterations=16):
-    mutations = [bit_flip, byte_flip, arithmetic, insert, delete, ...]
-    for _ in range(iterations):
-        mutation_func = random.choice(mutations)
-        data = mutation_func(data)
-    return data
-```
-
-**优势**：
-- 能够快速探索输入空间
-- 不依赖对文件格式的先验知识
-- 在确定性变异效率降低后仍然有效
+Havoc 通过随机堆叠多种算子生成更“野”的输入，用来快速扩大搜索空间；当一些确定性变异开始边际收益下降时，Havoc 往往更有效。
 
 #### 4.4.2 Splice 变异
 
 从两个不同的种子中各取一部分拼接，产生新的组合：
 
-```python
-def splice(data1, data2):
-    split1 = random.randint(0, len(data1))
-    split2 = random.randint(0, len(data2))
-    return data1[:split1] + data2[split2:]
-```
-
-**适用场景**：结构化输入（如包含多个字段的文件格式）
+Splice 将两个种子切片后拼接，适合结构化输入（多个字段/块）的探索。
 
 ---
 
@@ -454,39 +333,21 @@ def splice(data1, data2):
 **问题**：Python 执行速度慢，模糊测试对性能敏感。
 
 **解决方案**：
-1. 使用 `/tmp` 作为临时目录（通常是 tmpfs，内存文件系统）
-2. 优化数据结构（使用 `bytearray` 而非多次 `bytes` 转换）
-3. 减少不必要的对象创建
-4. 使用堆优化调度器（O(log n) vs O(n)）
+- 用 `/tmp` 作为临时目录（通常是 tmpfs），减少 I/O 开销
+- 关键路径尽量用 `bytearray`，避免反复拷贝与对象创建
+- 调度器用堆结构，避免线性扫描
 
-**实测结果**：达到 50-70 execs/sec（相比原生 AFL++ 的 500+ execs/sec 仍有差距，但对 Python 实现来说已是合理水平）
-
-### 5.2 非标准目标构建
-
-**问题**：部分目标（mjs, readpng）没有标准的 `configure && make` 流程。
-
-**解决方案**：
-- mjs：手动添加 `-DMJS_MAIN` 编译选项
-- readpng：手动链接静态库 `libpng16.a` 和 `zlib`
-- 在 `build_targets.sh` 中添加特殊处理逻辑
-
-### 5.3 stdin 输入支持
+### 5.2 stdin 输入支持
 
 **问题**：AFL++ 默认使用文件参数（`@@`），但部分目标（如 `readpng`）只接受 stdin。
 
-**解决方案**：
-- 检测参数中是否包含 `@@`
-- 如果不包含，使用 Shell 重定向：`cmd < input_file`
-- 确保跨平台兼容性
+**解决方案**：参数含 `@@` 走文件模式；否则走 stdin 模式（把输入写入子进程 stdin）。
 
-### 5.4 长时间运行稳定性
+### 5.3 长时间运行稳定性
 
 **问题**：24小时测试需要确保无内存泄漏、无资源耗尽。
 
-**解决方案**：
-1. 使用 `__del__` 和 `finally` 确保资源清理
-2. 信号处理：优雅地响应 SIGINT/SIGTERM
-3. 定期保存快照，避免意外中断导致数据丢失
+**解决方案**：确保资源清理（共享内存/临时文件）、做好信号处理（SIGINT/SIGTERM）、并把关键统计按周期落盘。
 
 ---
 
@@ -494,31 +355,15 @@ def splice(data1, data2):
 
 ### 6.1 单元测试
 
-为核心组件编写单元测试（`tests/` 目录）：
-- `test_executor.py`：测试执行器的超时、崩溃检测
-- `test_mutator.py`：测试变异算子的正确性
-- `test_coverage.py`：测试覆盖率计算
-- `test_shm.py`：测试共享内存通信
+为核心组件编写单元测试（`tests/` 目录），覆盖执行器、变异器、覆盖率更新与共享内存等关键逻辑。
 
 ### 6.2 集成测试
 
-使用简单的目标程序（如 `test_crash.c`）验证端到端流程：
-```c
-int main(int argc, char **argv) {
-    if (argc > 1 && argv[1][0] == 'A') {
-        int *p = NULL;
-        *p = 42;  // 崩溃
-    }
-    return 0;
-}
-```
+使用一个可控的“必崩”小目标程序验证端到端流程（生成输入 → 执行 → 捕获崩溃 → 落盘去重 → 统计输出）。
 
 ### 6.3 基准测试
 
-在10个真实目标上运行24小时测试，验证：
-- 稳定性（无异常退出）
-- 有效性（发现崩溃、覆盖率增长）
-- 性能（执行速度、内存占用）
+在多个真实目标上做长时间运行验证：稳定性（不中断）、有效性（覆盖率增长/崩溃样本）、以及资源占用。
 
 ---
 
@@ -526,10 +371,7 @@ int main(int argc, char **argv) {
 
 ### 7.1 项目成果
 
-1. 实现了功能完整的覆盖率引导模糊测试工具
-2. 成功集成 AFL++ 插桩和共享内存通信
-3. 在多个真实目标上验证了有效性
-4. 代码结构清晰，文档完善
+实现了一个可运行的 Python 灰盒 fuzzer：覆盖率反馈、变异主循环、崩溃处理与统计输出均可用。
 
 ### 7.2 不足与改进方向
 
@@ -547,14 +389,6 @@ int main(int argc, char **argv) {
 
 ### 7.3 学习收获
 
-通过本项目，深入理解了：
-- 模糊测试的核心原理和工作流程
-- 覆盖率引导的价值和实现方法
-- 与底层系统（共享内存、信号）的交互
-- 软件工程实践（模块化设计、测试、文档）
+本项目的重点收获是把“覆盖率反馈 + 调度 + 变异 + 执行 + 评估”的完整闭环跑通，并把工程取舍（如禁用 forkserver）写清楚。
 
 ---
-
-**文档版本**：v1.0  
-**最后更新**：2026年1月3日  
-**作者**：南京大学软件学院

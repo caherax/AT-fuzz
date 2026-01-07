@@ -62,29 +62,29 @@ docker-compose down
 **推荐方法二：使用 Docker**
 
 ```bash
-# 构建镜像
 docker build -t at-fuzz .
 
 # 运行容器（交互模式）
 docker run -it \
-    -v $(pwd)/output:/fuzzer/output \
+    -v $(pwd):/fuzzer \
     at-fuzz
 ```
 
 **方法三：本地环境 (Ubuntu 22.04+)**
 
 ```bash
-# 安装系统依赖
-sudo apt-get install -y gcc g++ make python3 python3-pip zlib1g-dev
+# 安装系统依赖和 AFL++
+sudo apt-get update
+sudo apt-get install -y build-essential python3 python3-pip python3-venv afl++
 
-# 安装 AFL++ (用于插桩目标程序)
-git clone https://github.com/AFLplusplus/AFLplusplus
-cd AFLplusplus
-make
-sudo make install
+# 安装 Python 依赖（推荐 venv）
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install matplotlib
 
-# 安装 Python 依赖
-pip3 install matplotlib
+# 备选方案：使用系统包管理器安装（无需 venv）
+# sudo apt-get install -y python3-matplotlib
 ```
 
 ---
@@ -95,8 +95,8 @@ pip3 install matplotlib
 
 ```bash
 # 设置 AFL++ 编译器
-export CC=/path/to/afl-cc
-export CXX=/path/to/afl-c++
+export CC=afl-cc
+export CXX=afl-c++
 
 # 编译目标程序
 ./configure --disable-shared
@@ -243,9 +243,10 @@ docker run -it \
 编辑 `config.py` 可调整：
 
 *   **`timeout`**：单次执行超时时间（秒）。
+*   **`log_interval`**：状态栏/日志更新频率（秒）。
 *   **`bitmap_size`**：覆盖率位图大小（默认 65536）。
 *   **`max_file_size`**：种子文件最大尺寸（字节）。
-*   **`coverage_update_interval`**：统计更新间隔（执行次数）。
+*   **`havoc_divider`**：变异强度因子。
 
 ---
 
@@ -263,7 +264,3 @@ docker run -it \
 本项目仅供学习和研究使用。
 
 ---
-
-## 👤 作者
-
-南京大学软件学院/智软学院 - 软件测试课程大作业
