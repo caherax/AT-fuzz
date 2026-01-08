@@ -162,7 +162,6 @@ python3 fuzzer.py \
 说明：`--max-seed-size` 的单位是 **字节**。
 
 该脚本会根据不同目标（例如是否 `@@` 文件输入、解析速度、典型输入规模）设置 `--timeout` / `--havoc-iterations` / `--max-seed-size`。
-```
 
 ---
 

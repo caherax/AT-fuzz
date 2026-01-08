@@ -227,6 +227,7 @@ class Fuzzer:
             total_execs=stats['total_execs'],
             exec_rate=exec_rate,
             total_crashes=stats['total_crashes'],
+            total_hangs=stats['total_hangs'],
             coverage=stats['total_coverage_bits']
         )
 
