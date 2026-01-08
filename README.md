@@ -12,6 +12,7 @@
 - **崩溃检测**：支持信号检测 (SIGSEGV, SIGABRT) 和 ASan (AddressSanitizer) 集成。
 - **可视化评估**：自动生成覆盖率增长、执行速度和崩溃发现的统计图表。
 - **灵活输入**：支持文件参数 (`@@`) 和标准输入 (stdin) 两种模式。
+- **检查点恢复**：支持暂停保存状态并在下次继续运行。
 
 ---
 
@@ -125,6 +126,8 @@ python3 fuzzer.py \
 *   `--seeds`：初始种子目录。
 *   `--output`：输出目录，保存 crashes, queue, 统计数据等。
 *   `--duration`：测试持续时间（秒）。
+*   `--checkpoint-path`：检查点保存目录（默认：`<output>/checkpoints`）。
+*   `--resume-from`：从指定的 `checkpoint.json` 恢复运行。
 
 **示例：测试一个二进制程序**
 
@@ -161,7 +164,39 @@ python3 fuzzer.py \
 
 说明：`--max-seed-size` 的单位是 **字节**。
 
-该脚本会根据不同目标（例如是否 `@@` 文件输入、解析速度、典型输入规模）设置 `--timeout` / `--havoc-iterations` / `--max-seed-size`。
+建议根据不同目标（例如是否 `@@` 文件输入、解析速度、典型输入规模）调整 `--timeout` / `--havoc-iterations` / `--max-seed-size`。
+
+---
+
+## ⏸️ 暂停与恢复（检查点）
+
+AT-Fuzz 支持在长时间运行中“暂停并保存状态”，并在下次从检查点继续。
+
+- 暂停：向进程发送 `SIGINT`（最常用方式是直接按 Ctrl+C）。程序会在主循环中保存检查点并退出，同时输出检查点大小拆分与最终 JSON 大小。
+- 恢复：使用 `--resume-from /path/to/checkpoint.json`。
+- 重要限制：检查点保存发生在主 fuzz 循环中；加载初始种子阶段不会保存检查点。并且从检查点恢复时会跳过初始种子加载。
+
+示例：
+
+```bash
+# 运行并指定检查点目录
+python3 fuzzer.py \
+    --target /path/to/your_binary \
+    --args "your_binary -a @@" \
+    --seeds /path/to/seeds \
+    --output output/test_run \
+    --duration 3600 \
+    --checkpoint-path output/test_run/checkpoints
+
+# 从检查点恢复
+python3 fuzzer.py \
+    --target /path/to/your_binary \
+    --args "your_binary -a @@" \
+    --seeds /path/to/seeds \
+    --output output/test_run \
+    --duration 3600 \
+    --resume-from output/test_run/checkpoints/checkpoint.json
+```
 
 ---
 
