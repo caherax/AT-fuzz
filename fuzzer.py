@@ -6,8 +6,12 @@
 import os
 import sys
 import time
+import json
+import base64
 import signal
+import heapq
 from pathlib import Path
+from datetime import datetime, timezone
 
 from config import CONFIG
 from components.executor import TestExecutor
@@ -24,7 +28,9 @@ class Fuzzer:
     """
 
     def __init__(self, target_id: str, target_path: str, target_args: str,
-                 seed_dir: str, output_dir: str):
+                 seed_dir: str, output_dir: str,
+                 checkpoint_path: str | None = None,
+                 resume_from: str | None = None):
         """
         初始化模糊器
 
@@ -56,16 +62,32 @@ class Fuzzer:
         self.last_coverage = 0
         self.last_execs = 0  # 上次统计的执行次数
         self.seed_dir = Path(seed_dir)
+        self.checkpoint_dir = Path(checkpoint_path) if checkpoint_path else (Path(output_dir) / 'checkpoints')
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self.resume_flag = bool(resume_from)
+        self.pause_requested = False
+        self._loaded_checkpoint = resume_from
 
         # 信号处理
-        signal.signal(signal.SIGINT, self._signal_handler)
+        # SIGINT: 请求暂停并保存检查点（便于直接 Ctrl+C）
+        signal.signal(signal.SIGINT, self._pause_handler)
+        # SIGTERM: 仍旧走正常收尾
         signal.signal(signal.SIGTERM, self._signal_handler)
+
+        # 如指定恢复文件，则加载检查点
+        if self._loaded_checkpoint:
+            self._load_checkpoint(Path(self._loaded_checkpoint))
 
     def _signal_handler(self, signum, frame):
         """处理中断信号"""
         print("\n[!] Fuzzer interrupted, saving results...")
         self._finalize()
         sys.exit(0)
+
+    def _pause_handler(self, signum, frame):
+        """收到 SIGINT 时请求暂停并保存检查点"""
+        print("\n[*] Pause requested (SIGINT). Will save checkpoint and exit...")
+        self.pause_requested = True
 
     def _process_seed(self, seed_data: bytes, is_initial: bool = False) -> bool:
         """
@@ -171,8 +193,11 @@ class Fuzzer:
         print(f"[*] Args: {self.target_args}")
         print()
 
-        # 先加载并处理初始种子
-        self.load_initial_seeds()
+        # 先加载并处理初始种子（如果未从检查点恢复）
+        if not self.resume_flag:
+            self.load_initial_seeds()
+        else:
+            print("[*] Resumed from checkpoint, skip initial seed loading")
 
         iteration = 0
         while time.time() - self.start_time < duration_seconds:
@@ -194,6 +219,12 @@ class Fuzzer:
 
                 # 使用统一的种子处理方法（变异种子仅在有趣时加入队列）
                 self._process_seed(mutant)
+
+            # 如收到暂停请求，保存检查点并退出循环
+            if self.pause_requested:
+                self._save_checkpoint(reason="pause")
+                print("[+] Checkpoint saved. Exiting for pause.")
+                break
 
         # 模糊测试完成
         self._finalize()
@@ -270,6 +301,183 @@ class Fuzzer:
         """清理资源"""
         self.executor.cleanup()
 
+    # ========== 检查点支持 ==========
+    def _save_checkpoint(self, reason: str = "manual"):
+        """保存当前状态到检查点"""
+        # 预先计算各部分的大小开销
+        print("[*] Checkpoint size breakdown:")
+
+        # 1. 种子队列大小
+        total_seed_size = sum(len(s.data) for s in self.scheduler.seeds)
+        print(f"  Seeds: {len(self.scheduler.seeds)} seeds, {total_seed_size} bytes")
+
+        # 2. 覆盖率位图大小
+        coverage_size = len(self.monitor.global_coverage) if self.monitor.global_coverage else 0
+        print(f"  Coverage bitmap: {coverage_size} bytes")
+
+        # 3. 构建状态字典
+        state = {
+            'version': 1,
+            'reason': reason,
+            'target_id': self.target_id,
+            'target_path': self.target_path,
+            'target_args': self.target_args,
+            'seed_dir': str(self.seed_dir),
+            'output_dir': str(self.monitor.output_dir),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'config': CONFIG,
+            'runtime': {
+                'start_time': self.start_time,
+                'last_snapshot_time': self.last_snapshot_time,
+                'last_coverage': self.last_coverage,
+                'last_execs': self.last_execs,
+            },
+            'monitor': {
+                'stats': {
+                    'total_execs': self.monitor.stats['total_execs'],
+                    'total_crashes': self.monitor.stats['total_crashes'],
+                    'total_hangs': self.monitor.stats['total_hangs'],
+                    'interesting_inputs': self.monitor.stats['interesting_inputs'],
+                    'start_time': self.monitor.stats['start_time'],
+                    'unique_crashes': list(self.monitor.stats['unique_crashes']),
+                    'unique_hangs': list(self.monitor.stats['unique_hangs']),
+                },
+                'global_coverage': base64.b64encode(bytes(self.monitor.global_coverage or b'' )).decode() if self.monitor.use_coverage else None,
+            },
+            'scheduler': {
+                'strategy': self.scheduler.strategy,
+                'seeds': [
+                    {
+                        'data': base64.b64encode(s.data).decode(),
+                        'exec_count': s.exec_count,
+                        'coverage_bits': s.coverage_bits,
+                        'exec_time': s.exec_time,
+                        'energy': s.energy
+                    }
+                    for s in self.scheduler.seeds
+                ],
+                'total_exec_time': self.scheduler.total_exec_time,
+                'total_coverage': self.scheduler.total_coverage,
+                'total_memory': self.scheduler.total_memory,
+                'fifo_index': self.scheduler.fifo_index,
+            }
+        }
+
+        checkpoint_file = self.checkpoint_dir / 'checkpoint.json'
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+        # 序列化并计算大小
+        json_data = json.dumps(state, indent=2)
+        json_size = len(json_data.encode('utf-8'))
+
+        # Base64 编码开销估算
+        b64_overhead = 0
+        for s in self.scheduler.seeds:
+            raw_size = len(s.data)
+            b64_size = len(base64.b64encode(s.data).decode())
+            b64_overhead += (b64_size - raw_size)
+        if self.monitor.global_coverage:
+            raw_cov = len(self.monitor.global_coverage)
+            b64_cov = len(base64.b64encode(bytes(self.monitor.global_coverage)).decode())
+            b64_overhead += (b64_cov - raw_cov)
+
+        print(f"  Base64 encoding overhead: {b64_overhead} bytes")
+        print(f"  Final JSON size: {json_size} bytes")
+
+        checkpoint_file.write_text(json_data)
+        print(f"[*] Checkpoint saved to {checkpoint_file}")
+
+    def _load_checkpoint(self, checkpoint_path: Path):
+        """从检查点恢复状态"""
+        if not checkpoint_path.exists():
+            print(f"[!] Checkpoint not found: {checkpoint_path}")
+            return
+
+        state = json.loads(checkpoint_path.read_text())
+        version = state.get('version', 1)
+        if version != 1:
+            print(f"[!] Unsupported checkpoint version: {version}")
+            return
+
+        # 覆盖 CONFIG 以保持一致性
+        loaded_config = state.get('config', {})
+        CONFIG.update(loaded_config)
+
+        # 恢复运行时
+        runtime = state.get('runtime', {})
+
+        # 修正时间逻辑：计算之前运行的时长，并调整 start_time 使其相对于当前时间正确
+        # 这样 fuzz_loop 中的 (time.time() - self.start_time) 才能正确反映总运行时长
+        previous_start = runtime.get('start_time', time.time())
+        previous_last_snap = runtime.get('last_snapshot_time', previous_start)
+        previous_duration = previous_last_snap - previous_start
+
+        current_time = time.time()
+        self.start_time = current_time - previous_duration
+        self.last_snapshot_time = current_time # 重置快照时间为当前
+
+        self.last_coverage = runtime.get('last_coverage', self.last_coverage)
+        self.last_execs = runtime.get('last_execs', self.last_execs)
+        try:
+            self.evaluator.start_time = datetime.fromtimestamp(self.start_time)
+        except Exception:
+            pass
+
+        # 恢复监控器
+        monitor_state = state.get('monitor', {})
+        stats = monitor_state.get('stats', {})
+        self.monitor.stats['total_execs'] = stats.get('total_execs', 0)
+        self.monitor.stats['total_crashes'] = stats.get('total_crashes', 0)
+        self.monitor.stats['total_hangs'] = stats.get('total_hangs', 0)
+        self.monitor.stats['interesting_inputs'] = stats.get('interesting_inputs', 0)
+        self.monitor.stats['start_time'] = stats.get('start_time', self.monitor.stats['start_time'])
+        self.monitor.stats['unique_crashes'] = set(stats.get('unique_crashes', []))
+        self.monitor.stats['unique_hangs'] = set(stats.get('unique_hangs', []))
+
+        if self.monitor.use_coverage:
+            cov_b64 = monitor_state.get('global_coverage')
+            if cov_b64:
+                try:
+                    cov_bytes = base64.b64decode(cov_b64)
+                    self.monitor.global_coverage = bytearray(cov_bytes)
+                    self.monitor.stats['total_coverage_bits'] = sum(b.bit_count() for b in self.monitor.global_coverage)
+                except Exception:
+                    print("[!] Failed to load global coverage from checkpoint")
+
+        # 恢复调度器
+        sched_state = state.get('scheduler', {})
+        self.scheduler.strategy = sched_state.get('strategy', self.scheduler.strategy)
+        self.scheduler.total_exec_time = sched_state.get('total_exec_time', 0.0)
+        self.scheduler.total_coverage = sched_state.get('total_coverage', 0)
+        self.scheduler.total_memory = 0
+        self.scheduler.fifo_index = sched_state.get('fifo_index', 0)
+        self.scheduler.seeds.clear()
+
+        seeds_data = sched_state.get('seeds', [])
+        from components.scheduler import Seed
+        for s in seeds_data:
+            try:
+                data = base64.b64decode(s['data'])
+            except Exception:
+                continue
+            seed = Seed(
+                data=data,
+                exec_count=s.get('exec_count', 0),
+                coverage_bits=s.get('coverage_bits', 0),
+                exec_time=s.get('exec_time', 0.0),
+                energy=s.get('energy', 1.0),
+            )
+            # 保持 energy/sort_index 一致
+            seed.update_energy(seed.energy)
+            self.scheduler.total_memory += len(data)
+            if self.scheduler.strategy == 'fifo':
+                self.scheduler.seeds.append(seed)
+            else:
+                heapq.heappush(self.scheduler.seeds, seed)
+
+        print(f"[+] Checkpoint loaded from {checkpoint_path} | seeds: {len(self.scheduler.seeds)} | execs: {self.monitor.stats['total_execs']}")
+        self.resume_flag = True
+
 
 def main():
     """主函数"""
@@ -287,6 +495,8 @@ def main():
     parser.add_argument('--output', required=True, help='Output directory')
     parser.add_argument('--duration', type=int, default=3600, help='Fuzzing duration (seconds)')
     parser.add_argument('--target-id', default='unknown', help='Target ID')
+    parser.add_argument('--checkpoint-path', help='Directory to save checkpoints (default: <output>/checkpoints)')
+    parser.add_argument('--resume-from', help='Path to checkpoint.json to resume from')
 
     # CONFIG 参数覆盖
     parser.add_argument('--timeout', type=float, help='Execution timeout (seconds)')
@@ -333,7 +543,9 @@ def main():
         target_path=args.target,
         target_args=args.args,
         seed_dir=args.seeds,
-        output_dir=args.output
+        output_dir=args.output,
+        checkpoint_path=args.checkpoint_path,
+        resume_from=args.resume_from
     )
 
     try:
