@@ -115,7 +115,7 @@ class TestExecutor:
                 os.setsid()
 
         # 执行目标程序
-        start_time = time.time()
+        start_time = time.perf_counter()
         try:
             result = subprocess.run(
                 cmd,
@@ -126,7 +126,7 @@ class TestExecutor:
                 env=env,  # 传递环境变量
                 preexec_fn=set_limits
             )
-            elapsed = time.time() - start_time
+            elapsed = time.perf_counter() - start_time
 
             # 读取覆盖率
             coverage = self.shm.read_bitmap() if self.shm else None
@@ -146,7 +146,7 @@ class TestExecutor:
             }
 
         except subprocess.TimeoutExpired:
-            elapsed = time.time() - start_time
+            elapsed = time.perf_counter() - start_time
             return {
                 'return_code': -1,
                 'exec_time': elapsed,
@@ -157,7 +157,7 @@ class TestExecutor:
             }
 
         except Exception as e:
-            elapsed = time.time() - start_time
+            elapsed = time.perf_counter() - start_time
             stderr_max = CONFIG.get('stderr_max_len', 1000)
             return {
                 'return_code': -1,
