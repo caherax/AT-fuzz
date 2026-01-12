@@ -66,6 +66,7 @@ class Fuzzer:
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.resume_flag = bool(resume_from)
         self.pause_requested = False
+        self.force_exit = False
         self._loaded_checkpoint = resume_from
 
         # 信号处理
@@ -86,6 +87,9 @@ class Fuzzer:
 
     def _pause_handler(self, signum, frame):
         """收到 SIGINT 时请求暂停并保存检查点"""
+        if self.pause_requested or self.force_exit:
+            print("\n[!] Force exit...")
+            sys.exit(1)
         print("\n[*] Pause requested (SIGINT). Will save checkpoint and exit...")
         self.pause_requested = True
 
@@ -121,7 +125,7 @@ class Fuzzer:
         if is_interesting:
             stats = self.monitor.stats
             if stats['total_coverage_bits'] > self.last_coverage:
-                print(f"[+] New coverage: {stats['total_coverage_bits']} bits")
+                print(f"[+] New coverage: {stats['total_coverage_bits']}")
                 self.last_coverage = stats['total_coverage_bits']
 
         # 定期输出统计信息和快照 (基于时间间隔)
@@ -250,8 +254,8 @@ class Fuzzer:
               f"Execs: {stats['total_execs']:8d} | "
               f"Rate: {exec_rate:6.1f}/s | "
               f"Coverage: {stats['total_coverage_bits']:5d} | "
-              f"Crashes: {stats['total_crashes']:3d} | "
-              f"Hangs: {stats['total_hangs']:3d}")
+              f"Crashes: {stats['saved_crashes']}/{stats['total_crashes']} | "
+              f"Hangs: {stats['saved_hangs']}/{stats['total_hangs']}")
 
         # 保存快照数据
         self.evaluator.record(
@@ -283,8 +287,8 @@ class Fuzzer:
             'total_execs': stats['total_execs'],
             'total_crashes': stats['total_crashes'],
             'total_hangs': stats['total_hangs'],
-            'unique_crashes': len(stats['unique_crashes']),
-            'unique_hangs': len(stats['unique_hangs']),
+            'saved_crashes': stats['saved_crashes'],
+            'saved_hangs': stats['saved_hangs'],
             'total_coverage_bits': stats['total_coverage_bits'],
             'total_seeds': len(self.scheduler.seeds),
             'exec_rate': stats['total_execs'] / elapsed if elapsed > 0 else 0
@@ -312,7 +316,7 @@ class Fuzzer:
         print(f"  Seeds: {len(self.scheduler.seeds)} seeds, {total_seed_size} bytes")
 
         # 2. 覆盖率位图大小
-        coverage_size = len(self.monitor.global_coverage) if self.monitor.global_coverage else 0
+        coverage_size = len(self.monitor.virgin_bits) if self.monitor.virgin_bits else 0
         print(f"  Coverage bitmap: {coverage_size} bytes")
 
         # 3. 构建状态字典
@@ -337,12 +341,12 @@ class Fuzzer:
                     'total_execs': self.monitor.stats['total_execs'],
                     'total_crashes': self.monitor.stats['total_crashes'],
                     'total_hangs': self.monitor.stats['total_hangs'],
+                    'saved_crashes': self.monitor.stats['saved_crashes'],
+                    'saved_hangs': self.monitor.stats['saved_hangs'],
                     'interesting_inputs': self.monitor.stats['interesting_inputs'],
                     'start_time': self.monitor.stats['start_time'],
-                    'unique_crashes': list(self.monitor.stats['unique_crashes']),
-                    'unique_hangs': list(self.monitor.stats['unique_hangs']),
                 },
-                'global_coverage': base64.b64encode(bytes(self.monitor.global_coverage or b'' )).decode() if self.monitor.use_coverage else None,
+                'virgin_bits': base64.b64encode(bytes(self.monitor.virgin_bits or b'')).decode() if self.monitor.use_coverage else None,
             },
             'scheduler': {
                 'strategy': self.scheduler.strategy,
@@ -376,9 +380,9 @@ class Fuzzer:
             raw_size = len(s.data)
             b64_size = len(base64.b64encode(s.data).decode())
             b64_overhead += (b64_size - raw_size)
-        if self.monitor.global_coverage:
-            raw_cov = len(self.monitor.global_coverage)
-            b64_cov = len(base64.b64encode(bytes(self.monitor.global_coverage)).decode())
+        if self.monitor.virgin_bits:
+            raw_cov = len(self.monitor.virgin_bits)
+            b64_cov = len(base64.b64encode(bytes(self.monitor.virgin_bits)).decode())
             b64_overhead += (b64_cov - raw_cov)
 
         print(f"  Base64 encoding overhead: {b64_overhead} bytes")
@@ -429,20 +433,23 @@ class Fuzzer:
         self.monitor.stats['total_execs'] = stats.get('total_execs', 0)
         self.monitor.stats['total_crashes'] = stats.get('total_crashes', 0)
         self.monitor.stats['total_hangs'] = stats.get('total_hangs', 0)
+        self.monitor.stats['saved_crashes'] = stats.get('saved_crashes', 0)
+        self.monitor.stats['saved_hangs'] = stats.get('saved_hangs', 0)
         self.monitor.stats['interesting_inputs'] = stats.get('interesting_inputs', 0)
         self.monitor.stats['start_time'] = stats.get('start_time', self.monitor.stats['start_time'])
-        self.monitor.stats['unique_crashes'] = set(stats.get('unique_crashes', []))
-        self.monitor.stats['unique_hangs'] = set(stats.get('unique_hangs', []))
 
         if self.monitor.use_coverage:
-            cov_b64 = monitor_state.get('global_coverage')
+            cov_b64 = monitor_state.get('virgin_bits')
             if cov_b64:
                 try:
                     cov_bytes = base64.b64decode(cov_b64)
-                    self.monitor.global_coverage = bytearray(cov_bytes)
-                    self.monitor.stats['total_coverage_bits'] = sum(b.bit_count() for b in self.monitor.global_coverage)
+                    self.monitor.virgin_bits = bytearray(cov_bytes)
+                    # 重新计算覆盖率（已触发的位）
+                    self.monitor.stats['total_coverage_bits'] = sum(
+                        (0xFF ^ b).bit_count() for b in self.monitor.virgin_bits
+                    )
                 except Exception:
-                    print("[!] Failed to load global coverage from checkpoint")
+                    print("[!] Failed to load virgin_bits from checkpoint")
 
         # 恢复调度器
         sched_state = state.get('scheduler', {})

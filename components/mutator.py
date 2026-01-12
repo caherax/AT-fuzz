@@ -1,9 +1,53 @@
 """
 变异组件 (Component 3/6)
 职责：生成新的测试用例，包含多种变异算子
+
+参考 AFL++ 实现:
+- afl-fuzz-one.c: fuzz_one_original, havoc_stage
+- afl-mutations.h: 变异算子定义
 """
 
 import random
+import struct
+
+# 这些值经常出现在边界条件和魔数中
+
+INTERESTING_8 = [
+    -128,                   # Overflow boundary
+    -1,                     # 0xFF
+    0,                      # Zero
+    1,                      # One
+    16,                     # One-off with common buffer size
+    32,                     # Common buffer size / ASCII space
+    64,                     # One-off with common buffer size
+    100,                    # One-off with common buffer size
+    127,                    # Signed int8 max
+]
+
+INTERESTING_16 = [
+    -32768,                 # Overflow boundary
+    -129,                   # Overflow boundary
+    128,                    # Overflow boundary
+    255,                    # Overflow boundary
+    256,                    # Overflow boundary
+    512,                    # Common buffer size
+    1000,                   # Common size
+    1024,                   # Common buffer size
+    4096,                   # Common buffer size
+    32767,                  # Signed int16 max
+]
+
+INTERESTING_32 = [
+    -2147483648,            # Overflow boundary
+    -100663046,             # Large negative
+    -32769,                 # Overflow boundary
+    32768,                  # Overflow boundary
+    65535,                  # Overflow boundary
+    65536,                  # Overflow boundary
+    100663045,              # Large positive
+    2147483647,             # Signed int32 max
+]
+
 
 class Mutator:
     """
@@ -47,23 +91,31 @@ class Mutator:
     def interesting_values(data: bytes) -> bytes:
         """
         有趣数值替换（Interesting Values）
-        替换一些字节为特殊值（0, 1, -1, 0x7F, 0xFF 等）
-        这些值可能触发边界条件
+        用 AFL++ 定义的特殊边界值替换字节
         """
-        if len(data) < 4:
+        if len(data) == 0:
             return data
 
         data = bytearray(data)
-        interesting_values = [0, 1, -1, 0x7F, 0xFF, 0x100, 0x10000]
 
-        # 随机选择替换位置（4字节对齐）
-        idx = random.randint(0, len(data) - 4)
-        val = random.choice(interesting_values).to_bytes(4, 'little', signed=True)
+        # 随机选择 8/16/32 位替换
+        choice = random.randint(0, 2)
 
-        try:
-            data[idx:idx+4] = val
-        except:
-            pass
+        if choice == 0 and len(data) >= 1:
+            # 8-bit
+            idx = random.randint(0, len(data) - 1)
+            val = random.choice(INTERESTING_8)
+            data[idx] = val & 0xFF
+        elif choice == 1 and len(data) >= 2:
+            # 16-bit
+            idx = random.randint(0, len(data) - 2)
+            val = random.choice(INTERESTING_8 + INTERESTING_16)
+            data[idx:idx+2] = struct.pack('<h', val)
+        elif len(data) >= 4:
+            # 32-bit
+            idx = random.randint(0, len(data) - 4)
+            val = random.choice(INTERESTING_8 + INTERESTING_16 + INTERESTING_32)
+            data[idx:idx+4] = struct.pack('<i', val)
 
         return bytes(data)
 

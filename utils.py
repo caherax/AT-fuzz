@@ -3,10 +3,8 @@
 包含覆盖率计算、SHM 通信、文件操作等辅助函数
 """
 
-import os
 import ctypes
 import ctypes.util
-from pathlib import Path
 from typing import Optional
 from datetime import datetime
 

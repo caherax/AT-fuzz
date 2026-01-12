@@ -70,7 +70,8 @@ def generate_summary_table(results: Dict, output_file: Path):
             
             total_execs = stats.get("total_executions", 0)
             total_crashes = stats.get("total_crashes", 0)
-            unique_crashes = stats.get("unique_crashes", 0)
+            # 兼容新旧字段名：优先使用 saved_crashes，回退到 unique_crashes
+            saved_crashes = stats.get("saved_crashes", stats.get("unique_crashes", 0))
             coverage = stats.get("total_coverage_bits", 0)
             duration = stats.get("duration_seconds", 0)
             
@@ -79,7 +80,7 @@ def generate_summary_table(results: Dict, output_file: Path):
             duration_h = duration / 3600 if duration > 0 else 0
             
             f.write(f"| {name} | {total_execs:,} | {total_crashes:,} | "
-                   f"{unique_crashes} | {coverage} | {exec_rate:.1f} | {duration_h:.1f}h |\n")
+                   f"{saved_crashes} | {coverage} | {exec_rate:.1f} | {duration_h:.1f}h |\n")
         
         f.write("\n## 指标说明\n\n")
         f.write("- **Executions**: 总执行次数\n")
@@ -116,13 +117,14 @@ def plot_coverage_comparison(results: Dict, output_file: Path):
 def plot_crash_comparison(results: Dict, output_file: Path):
     """绘制崩溃数对比图"""
     names = []
-    unique_crashes = []
+    saved_crashes = []
     total_crashes = []
     
     for name in sorted(results.keys()):
         r = results[name]
         names.append(name)
-        unique_crashes.append(r["stats"].get("unique_crashes", 0))
+        # 兼容新旧字段名
+        saved_crashes.append(r["stats"].get("saved_crashes", r["stats"].get("unique_crashes", 0)))
         total_crashes.append(r["stats"].get("total_crashes", 0))
     
     x = range(len(names))
@@ -131,8 +133,8 @@ def plot_crash_comparison(results: Dict, output_file: Path):
     plt.figure(figsize=(12, 6))
     plt.bar([i - width/2 for i in x], total_crashes, width, 
             label='Total Crashes', color='orange', alpha=0.8)
-    plt.bar([i + width/2 for i in x], unique_crashes, width, 
-            label='Unique Crashes', color='red', alpha=0.8)
+    plt.bar([i + width/2 for i in x], saved_crashes, width, 
+            label='Saved Crashes', color='red', alpha=0.8)
     
     plt.xlabel('Target', fontsize=12)
     plt.ylabel('Crash Count', fontsize=12)

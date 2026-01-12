@@ -172,13 +172,15 @@ class TestExecutor:
 class ExecutionMonitor:
    def __init__(self, output_dir: str, use_coverage: bool = False) -> None: ...
    def process_execution(self, input_data: bytes, exec_result: dict) -> bool: ...
-   def get_current_stats(self) -> dict: ...
    def save_stats_to_file(self) -> None: ...
+   
+   # 统计数据直接通过 stats 属性访问
+   stats: dict  # 包含 total_execs, saved_crashes, saved_hangs, total_coverage_bits 等
 ```
 
 **实现要点**：
-- 覆盖率用全局 bitmap 维护，增量比较判断“新覆盖”
-- 崩溃样本做去重（例如基于 stderr 哈希）；这种方式简单有效，但并非严格等价于“漏洞唯一性”
+- 覆盖率用 virgin_bits bitmap 维护，参考 AFL++ 的 has_new_bits 判断"新覆盖"
+- 崩溃/超时去重采用 AFL++ 风格的 virgin_crash/virgin_tmout bitmap
 
 #### 组件3：变异器 (Mutator)
 
