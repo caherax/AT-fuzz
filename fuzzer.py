@@ -207,6 +207,12 @@ class Fuzzer:
         while time.time() - self.start_time < duration_seconds:
             iteration += 1
 
+            # 检查暂停请求
+            if self.pause_requested:
+                self._save_checkpoint(reason="pause")
+                print("[+] Checkpoint saved. Exiting for pause.")
+                break
+
             # 1. 选择种子
             seed = self.scheduler.select_next()
             if seed is None:
@@ -217,18 +223,16 @@ class Fuzzer:
             # 每个种子执行多次变异（基于能量，但限制在合理范围）
             energy = max(1, min(16, int(seed.energy)))
             for _ in range(energy):
+                # 在内层循环中也检查暂停请求，快速响应
+                if self.pause_requested:
+                    break
+
                 # 变异（使用配置的 havoc 迭代次数）
                 iterations = CONFIG.get('havoc_iterations', 16)
                 mutant = Mutator.mutate(seed.data, 'havoc', iterations=iterations)
 
                 # 使用统一的种子处理方法（变异种子仅在有趣时加入队列）
                 self._process_seed(mutant)
-
-            # 如收到暂停请求，保存检查点并退出循环
-            if self.pause_requested:
-                self._save_checkpoint(reason="pause")
-                print("[+] Checkpoint saved. Exiting for pause.")
-                break
 
         # 模糊测试完成
         self._finalize()
@@ -262,7 +266,9 @@ class Fuzzer:
             total_execs=stats['total_execs'],
             exec_rate=exec_rate,
             total_crashes=stats['total_crashes'],
+            saved_crashes=stats['saved_crashes'],
             total_hangs=stats['total_hangs'],
+            saved_hangs=stats['saved_hangs'],
             coverage=stats['total_coverage_bits']
         )
 

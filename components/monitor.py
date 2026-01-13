@@ -256,12 +256,15 @@ class ExecutionMonitor:
         hang_file.write_bytes(input_data)
 
         # 保存 hang 信息
+        cov_hash = "no_coverage" if not coverage else f"{self._compute_hash(coverage):016x}"
+
         info_file = self.hangs_dir / f"{filename}.json"
         info = {
             'exec_id': hang_id,
             'exec_time': exec_result.get('exec_time'),
             'timeout': CONFIG['timeout'],
-            'input_size': len(input_data)
+            'input_size': len(input_data),
+            'coverage_hash': cov_hash,
         }
         info_file.write_text(json.dumps(info, indent=2))
 

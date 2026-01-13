@@ -63,9 +63,11 @@ class Evaluator:
         with open(self.csv_file, 'w', newline='') as f:
             writer = csv.writer(f)
             writer.writerow(['timestamp', 'elapsed_sec', 'total_execs',
-                           'exec_rate', 'total_crashes', 'total_hangs', 'coverage'])
+                           'exec_rate', 'total_crashes', 'saved_crashes', 
+                           'total_hangs', 'saved_hangs', 'coverage'])
 
-    def record(self, total_execs: int, exec_rate: float, total_crashes: int, total_hangs: int = 0, coverage: int = 0):
+    def record(self, total_execs: int, exec_rate: float, total_crashes: int, 
+               saved_crashes: int, total_hangs: int, saved_hangs: int, coverage: int = 0):
         """
         记录一个时间快照
 
@@ -73,7 +75,9 @@ class Evaluator:
             total_execs: 总执行数
             exec_rate: 每秒执行数
             total_crashes: 总崩溃数
+            saved_crashes: 保存的唯一崩溃数
             total_hangs: 总超时数
+            saved_hangs: 保存的唯一超时数
             coverage: 当前覆盖率（边数）
         """
         now = datetime.now()
@@ -93,7 +97,9 @@ class Evaluator:
                 total_execs,
                 f'{exec_rate:.1f}',
                 total_crashes,
+                saved_crashes,
                 total_hangs,
+                saved_hangs,
                 coverage
             ])
 
@@ -210,7 +216,10 @@ if __name__ == '__main__':
             evaluator.record(
                 total_execs=i * 100,
                 exec_rate=100.0,
-                total_crashes=i
+                total_crashes=i,
+                saved_crashes=i,
+                total_hangs=0,
+                saved_hangs=0
             )
             time.sleep(0.5)
 

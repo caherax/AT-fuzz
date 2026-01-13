@@ -147,13 +147,17 @@ class TestExecutor:
 
         except subprocess.TimeoutExpired:
             elapsed = time.perf_counter() - start_time
+
+            # 读取覆盖率
+            coverage = self.shm.read_bitmap() if self.shm else None
+
             return {
                 'return_code': -1,
                 'exec_time': elapsed,
                 'crashed': False,
                 'timeout': True,
                 'stderr': b'Execution timeout',
-                'coverage': None
+                'coverage': coverage
             }
 
         except Exception as e:
