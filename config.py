@@ -26,6 +26,7 @@ CONFIG_SCHEMA: dict[str, tuple[type, Callable[[Any], bool], str]] = {
     'log_interval': (float, lambda x: 0 < x, '状态/日志更新频率（秒）'),
     'stderr_max_len': (int, lambda x: 0 <= x, 'stderr 输出最大长度（byte）'),
     'crash_info_max_len': (int, lambda x: 0 <= x, '崩溃信息中 stderr 的最大长度（byte）'),
+    'use_sandbox': (bool, lambda x: isinstance(x, bool), '是否使用沙箱隔离环境（bubblewrap）'),
 }
 
 # ========== Fuzzer 核心配置 ==========
@@ -33,6 +34,7 @@ CONFIG = {
     # --- 执行控制 ---
     'timeout': 1.0,                  # 单次执行超时（秒）
     'mem_limit': 256,                # 内存限制（MB）
+    'use_sandbox': False,            # 是否使用沙箱 (Linux bwrap)
 
     # --- 覆盖率相关 ---
     'bitmap_size': 65536,            # AFL++ 共享内存 bitmap 大小（byte）
@@ -71,19 +73,19 @@ def validate_config(config: dict[str, Any]) -> list[str]:
             continue
 
         expected_type, validator, desc = CONFIG_SCHEMA[key]
-        
+
         # 类型检查
         if not isinstance(value, expected_type):
             errors.append(f"Config '{key}' should be {expected_type.__name__}, got {type(value).__name__}")
             continue
-        
+
         # 使用 lambda 验证函数检查值的有效性
         try:
             if not validator(value):
                 errors.append(f"Config '{key}' = {value} failed validation: {desc}")
         except Exception as e:
             errors.append(f"Config '{key}' validation error: {e}")
-    
+
     return errors
 
 

@@ -162,6 +162,7 @@ class TestExecutor:
 - 支持 `@@` 文件参数和 stdin 两种输入方式
 - 通过 `__AFL_SHM_ID` 向目标进程传递共享内存 ID
 - 使用超时限制避免 hang，并在返回码/信号上做崩溃判定（含 ASan exitcode）
+- 可选使用 bubblewrap (`bwrap`) 沙箱隔离运行（通过 `config.py` 的 `use_sandbox` 开关控制；若缺失 `bwrap` 则自动回退）
 
 #### 组件2：执行监控器 (ExecutionMonitor)
 
@@ -173,7 +174,7 @@ class ExecutionMonitor:
    def __init__(self, output_dir: str, use_coverage: bool = False) -> None: ...
    def process_execution(self, input_data: bytes, exec_result: dict) -> bool: ...
    def save_stats_to_file(self) -> None: ...
-   
+
    # 统计数据直接通过 stats 属性访问
    stats: dict  # 包含 total_execs, saved_crashes, saved_hangs, total_coverage_bits 等
 ```
@@ -363,7 +364,15 @@ Splice 将两个种子切片后拼接，适合结构化输入（多个字段/块
 
 ### 6.1 单元测试
 
-为核心组件编写单元测试（`tests/` 目录），覆盖执行器、变异器、覆盖率更新与共享内存等关键逻辑。
+为核心组件编写单元测试（`tests/` 目录），覆盖执行器、变异器、调度器、评估器、覆盖率更新与共享内存等关键逻辑。
+
+推荐在开发/CI 中使用以下命令运行全部测试：
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+说明：如果系统安装了 `bwrap`，会额外覆盖执行器的沙箱路径；未安装时相关测试会跳过或验证回退逻辑。
 
 ### 6.2 集成测试
 

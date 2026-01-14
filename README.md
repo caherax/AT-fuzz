@@ -12,6 +12,7 @@
 - **崩溃检测**：支持信号检测 (SIGSEGV, SIGABRT) 和 ASan (AddressSanitizer) 集成。
 - **可视化评估**：自动生成覆盖率增长、执行速度和崩溃发现的统计图表。
 - **灵活输入**：支持文件参数 (`@@`) 和标准输入 (stdin) 两种模式。
+- **可选沙箱隔离**：支持使用 bubblewrap (`bwrap`) 在受限环境中运行目标程序（缺失时自动回退）。
 - **检查点恢复**：支持暂停保存状态并在下次继续运行。
 
 ---
@@ -147,6 +148,7 @@ python3 fuzzer.py \
     --seeds /path/to/seeds \
     --output output/test_run \
     --duration 600
+```
 
 你也可以通过命令行覆盖 `config.py` 中的大多数参数，例如：
 
@@ -165,6 +167,30 @@ python3 fuzzer.py \
 说明：`--max-seed-size` 的单位是 **字节**。
 
 建议根据不同目标（例如是否 `@@` 文件输入、解析速度、典型输入规模）调整 `--timeout` / `--havoc-iterations` / `--max-seed-size`。
+
+---
+
+## ✅ 运行测试
+
+本项目使用 `unittest`，可以一条命令跑完整测试集：
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+说明：
+
+- 覆盖核心组件：`executor` / `mutator` / `scheduler` / `evaluator` / `utils`。
+- 如果系统安装了 `bwrap`，会额外跑 executor 的沙箱相关测试；未安装时会自动跳过或回退验证。
+
+---
+
+## 🛡️ 可选沙箱（bubblewrap）
+
+当目标程序不可信或希望隔离文件系统副作用时，可以启用 `bwrap` 沙箱：
+
+- 在 `config.py` 中设置 `use_sandbox=True`。
+- 若系统缺少 `bwrap`，执行器会打印 warning 并自动回退为非沙箱运行（不影响基本功能）。
 
 ---
 
