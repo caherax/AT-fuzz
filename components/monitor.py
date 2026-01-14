@@ -10,6 +10,11 @@
 - virgin_tmout: 未被 timeout 触发的路径
 - simplify_trace: 简化覆盖率（只保留 0/非0）
 - has_new_bits: 检查是否有新路径
+
+注意：修改 STATS_FIELDS 时，需要同步更新：
+1. __init__ 中的 self.stats 初始化
+2. save_stats_to_file 中的 exportable_stats
+3. fuzzer.py 中的 CHECKPOINT_MONITOR_STATS_FIELDS
 """
 
 import json
@@ -19,6 +24,23 @@ from datetime import datetime
 from typing import Dict, Optional
 
 from config import CONFIG
+
+
+# ========== 字段定义（用于一致性检查） ==========
+# Monitor 统计字段：修改时需同步 fuzzer.py 的 CHECKPOINT_MONITOR_STATS_FIELDS
+STATS_FIELDS = (
+    'total_execs',
+    'total_crashes',
+    'total_hangs',
+    'saved_crashes',
+    'saved_hangs',
+    'start_time',
+    'interesting_inputs',
+    'total_coverage_bits',
+)
+
+# Monitor bitmap 字段：修改时需同步 fuzzer.py 的 CHECKPOINT_MONITOR_BITMAP_FIELDS
+BITMAP_FIELDS = ('virgin_bits', 'virgin_crash', 'virgin_tmout')
 
 
 # AFL++ 风格的 simplify lookup table
@@ -86,6 +108,14 @@ class ExecutionMonitor:
             'interesting_inputs': 0,
             'total_coverage_bits': 0
         }
+
+        # 验证 stats 字段与 STATS_FIELDS 一致
+        assert set(self.stats.keys()) == set(STATS_FIELDS), \
+            f"Stats fields mismatch! Expected {STATS_FIELDS}, got {tuple(self.stats.keys())}"
+
+        # 验证 bitmap 属性存在
+        for field in BITMAP_FIELDS:
+            assert hasattr(self, field), f"Missing bitmap attribute: {field}"
 
         mode = "coverage-guided" if use_coverage else "blind"
         print(f"[Monitor] Initialized ({mode}). Output dir: {self.output_dir}")

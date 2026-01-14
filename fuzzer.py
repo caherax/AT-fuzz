@@ -15,11 +15,44 @@ from datetime import datetime, timezone
 
 from config import CONFIG
 from components.executor import TestExecutor
-from components.monitor import ExecutionMonitor
-from components.scheduler import SeedScheduler
+from components.monitor import ExecutionMonitor, STATS_FIELDS as MONITOR_STATS_FIELDS, BITMAP_FIELDS as MONITOR_BITMAP_FIELDS
+from components.scheduler import SeedScheduler, SEED_FIELDS as SCHEDULER_SEED_FIELDS
 from components.mutator import Mutator
 from components.evaluator import Evaluator
 from utils import count_coverage_bits
+
+
+# ========== Checkpoint 字段定义 ==========
+# 这些常量从各个模块导入，确保一致性
+# 修改时必须同时更新对应模块中的定义
+
+CHECKPOINT_VERSION = 2  # 版本号，用于检测不兼容的 checkpoint
+
+# 从 monitor.py 导入的字段（用于 checkpoint）
+# 注意：start_time 虽然在 MONITOR_STATS_FIELDS 中，但 checkpoint 只保存子集
+CHECKPOINT_MONITOR_STATS_FIELDS = (
+    'total_execs',
+    'total_crashes',
+    'total_hangs',
+    'saved_crashes',
+    'saved_hangs',
+    'interesting_inputs',
+    'start_time',
+)
+
+# 从 monitor.py 导入的 bitmap 字段
+CHECKPOINT_MONITOR_BITMAP_FIELDS = MONITOR_BITMAP_FIELDS
+
+# 从 scheduler.py 导入的 seed 字段
+CHECKPOINT_SEED_FIELDS = SCHEDULER_SEED_FIELDS
+
+# 启动时验证字段一致性
+assert set(CHECKPOINT_MONITOR_STATS_FIELDS).issubset(set(MONITOR_STATS_FIELDS)), \
+    f"CHECKPOINT_MONITOR_STATS_FIELDS contains fields not in MONITOR_STATS_FIELDS"
+assert CHECKPOINT_MONITOR_BITMAP_FIELDS == MONITOR_BITMAP_FIELDS, \
+    f"CHECKPOINT_MONITOR_BITMAP_FIELDS mismatch with MONITOR_BITMAP_FIELDS"
+assert CHECKPOINT_SEED_FIELDS == SCHEDULER_SEED_FIELDS, \
+    f"CHECKPOINT_SEED_FIELDS mismatch with SCHEDULER_SEED_FIELDS"
 
 
 class Fuzzer:
@@ -313,7 +346,10 @@ class Fuzzer:
 
     # ========== 检查点支持 ==========
     def _save_checkpoint(self, reason: str = "manual"):
-        """保存当前状态到检查点"""
+        """保存当前状态到检查点
+
+        注意：修改保存逻辑时，必须同步修改 _load_checkpoint 和顶部的 CHECKPOINT_* 常量
+        """
         # 预先计算各部分的大小开销
         print("[*] Checkpoint size breakdown:")
 
@@ -325,9 +361,37 @@ class Fuzzer:
         coverage_size = len(self.monitor.virgin_bits) if self.monitor.virgin_bits else 0
         print(f"  Coverage bitmap: {coverage_size} bytes")
 
-        # 3. 构建状态字典
+        # 3. 构建 monitor stats（使用常量定义的字段）
+        monitor_stats = {}
+        for field in CHECKPOINT_MONITOR_STATS_FIELDS:
+            assert field in self.monitor.stats, f"Missing monitor stats field: {field}"
+            monitor_stats[field] = self.monitor.stats[field]
+
+        # 4. 构建 monitor bitmaps（使用常量定义的字段）
+        monitor_bitmaps = {}
+        if self.monitor.use_coverage:
+            for field in CHECKPOINT_MONITOR_BITMAP_FIELDS:
+                bitmap = getattr(self.monitor, field, None)
+                assert bitmap is not None, f"Missing monitor bitmap: {field}"
+                monitor_bitmaps[field] = base64.b64encode(bytes(bitmap)).decode()
+        else:
+            for field in CHECKPOINT_MONITOR_BITMAP_FIELDS:
+                monitor_bitmaps[field] = None
+
+        # 5. 构建 seed 列表（使用常量定义的字段）
+        seeds_list = []
+        for s in self.scheduler.seeds:
+            seed_dict = {}
+            for field in CHECKPOINT_SEED_FIELDS:
+                if field == 'data':
+                    seed_dict[field] = base64.b64encode(s.data).decode()
+                else:
+                    seed_dict[field] = getattr(s, field)
+            seeds_list.append(seed_dict)
+
+        # 6. 构建完整状态字典
         state = {
-            'version': 1,
+            'version': CHECKPOINT_VERSION,
             'reason': reason,
             'target_id': self.target_id,
             'target_path': self.target_path,
@@ -343,35 +407,25 @@ class Fuzzer:
                 'last_execs': self.last_execs,
             },
             'monitor': {
-                'stats': {
-                    'total_execs': self.monitor.stats['total_execs'],
-                    'total_crashes': self.monitor.stats['total_crashes'],
-                    'total_hangs': self.monitor.stats['total_hangs'],
-                    'saved_crashes': self.monitor.stats['saved_crashes'],
-                    'saved_hangs': self.monitor.stats['saved_hangs'],
-                    'interesting_inputs': self.monitor.stats['interesting_inputs'],
-                    'start_time': self.monitor.stats['start_time'],
-                },
-                'virgin_bits': base64.b64encode(bytes(self.monitor.virgin_bits or b'')).decode() if self.monitor.use_coverage else None,
+                'stats': monitor_stats,
+                **monitor_bitmaps,  # virgin_bits, virgin_crash, virgin_tmout
             },
             'scheduler': {
                 'strategy': self.scheduler.strategy,
-                'seeds': [
-                    {
-                        'data': base64.b64encode(s.data).decode(),
-                        'exec_count': s.exec_count,
-                        'coverage_bits': s.coverage_bits,
-                        'exec_time': s.exec_time,
-                        'energy': s.energy
-                    }
-                    for s in self.scheduler.seeds
-                ],
+                'seeds': seeds_list,
                 'total_exec_time': self.scheduler.total_exec_time,
                 'total_coverage': self.scheduler.total_coverage,
                 'total_memory': self.scheduler.total_memory,
                 'fifo_index': self.scheduler.fifo_index,
             }
         }
+
+        # 断言：验证所有必要字段都已保存
+        assert 'monitor' in state and 'stats' in state['monitor'], "Missing monitor.stats in checkpoint"
+        for field in CHECKPOINT_MONITOR_STATS_FIELDS:
+            assert field in state['monitor']['stats'], f"Missing {field} in checkpoint monitor.stats"
+        for field in CHECKPOINT_MONITOR_BITMAP_FIELDS:
+            assert field in state['monitor'], f"Missing {field} in checkpoint monitor"
 
         checkpoint_file = self.checkpoint_dir / 'checkpoint.json'
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -398,16 +452,24 @@ class Fuzzer:
         print(f"[*] Checkpoint saved to {checkpoint_file}")
 
     def _load_checkpoint(self, checkpoint_path: Path):
-        """从检查点恢复状态"""
+        """从检查点恢复状态
+
+        注意：修改加载逻辑时，必须同步修改 _save_checkpoint 和顶部的 CHECKPOINT_* 常量
+        """
         if not checkpoint_path.exists():
             print(f"[!] Checkpoint not found: {checkpoint_path}")
             return
 
         state = json.loads(checkpoint_path.read_text())
         version = state.get('version', 1)
-        if version != 1:
-            print(f"[!] Unsupported checkpoint version: {version}")
+
+        # 版本兼容性检查
+        if version < 1 or version > CHECKPOINT_VERSION:
+            print(f"[!] Unsupported checkpoint version: {version} (expected <= {CHECKPOINT_VERSION})")
             return
+
+        if version < CHECKPOINT_VERSION:
+            print(f"[!] Warning: Loading older checkpoint version {version}, some fields may be missing")
 
         # 覆盖 CONFIG 以保持一致性
         loaded_config = state.get('config', {})
@@ -436,26 +498,38 @@ class Fuzzer:
         # 恢复监控器
         monitor_state = state.get('monitor', {})
         stats = monitor_state.get('stats', {})
-        self.monitor.stats['total_execs'] = stats.get('total_execs', 0)
-        self.monitor.stats['total_crashes'] = stats.get('total_crashes', 0)
-        self.monitor.stats['total_hangs'] = stats.get('total_hangs', 0)
-        self.monitor.stats['saved_crashes'] = stats.get('saved_crashes', 0)
-        self.monitor.stats['saved_hangs'] = stats.get('saved_hangs', 0)
-        self.monitor.stats['interesting_inputs'] = stats.get('interesting_inputs', 0)
-        self.monitor.stats['start_time'] = stats.get('start_time', self.monitor.stats['start_time'])
+
+        # 使用常量定义的字段恢复 stats
+        for field in CHECKPOINT_MONITOR_STATS_FIELDS:
+            if field in stats:
+                self.monitor.stats[field] = stats[field]
+            else:
+                print(f"[!] Warning: Missing {field} in checkpoint, using default")
 
         if self.monitor.use_coverage:
-            cov_b64 = monitor_state.get('virgin_bits')
-            if cov_b64:
-                try:
-                    cov_bytes = base64.b64decode(cov_b64)
-                    self.monitor.virgin_bits = bytearray(cov_bytes)
-                    # 重新计算覆盖率（已触发的位）
-                    self.monitor.stats['total_coverage_bits'] = sum(
-                        (0xFF ^ b).bit_count() for b in self.monitor.virgin_bits
-                    )
-                except Exception:
-                    print("[!] Failed to load virgin_bits from checkpoint")
+            # 使用常量定义的字段恢复 bitmaps
+            loaded_bitmaps = 0
+            for field in CHECKPOINT_MONITOR_BITMAP_FIELDS:
+                b64_data = monitor_state.get(field)
+                if b64_data:
+                    try:
+                        bitmap = bytearray(base64.b64decode(b64_data))
+                        setattr(self.monitor, field, bitmap)
+                        loaded_bitmaps += 1
+                    except Exception:
+                        print(f"[!] Failed to load {field} from checkpoint")
+                else:
+                    print(f"[!] Warning: Missing {field} in checkpoint, deduplication may be affected")
+
+            # 断言：至少 virgin_bits 必须存在
+            assert self.monitor.virgin_bits is not None, "virgin_bits is required for coverage-guided fuzzing"
+
+            # 重新计算覆盖率（已触发的位）
+            self.monitor.stats['total_coverage_bits'] = sum(
+                (0xFF ^ b).bit_count() for b in self.monitor.virgin_bits
+            )
+
+            print(f"[*] Loaded {loaded_bitmaps}/{len(CHECKPOINT_MONITOR_BITMAP_FIELDS)} coverage bitmaps")
 
         # 恢复调度器
         sched_state = state.get('scheduler', {})

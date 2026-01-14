@@ -6,6 +6,10 @@
 - CSV 时间序列数据记录
 - 生成执行数、速度、崩溃、覆盖率等统计图表
 - 输出最终 JSON 报告
+
+注意：修改 CSV_COLUMNS 时，需要同步更新：
+1. _init_csv() 中的 header
+2. record() 方法的参数和写入逻辑
 """
 
 import csv
@@ -21,6 +25,20 @@ try:
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
     print("[Warning] matplotlib not available, visualization disabled")
+
+
+# ========== CSV 列定义 ==========
+CSV_COLUMNS = (
+    'timestamp',
+    'elapsed_sec',
+    'total_execs',
+    'exec_rate',
+    'total_crashes',
+    'saved_crashes',
+    'total_hangs',
+    'saved_hangs',
+    'coverage',
+)
 
 
 class Evaluator:
@@ -62,11 +80,9 @@ class Evaluator:
 
         with open(self.csv_file, 'w', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(['timestamp', 'elapsed_sec', 'total_execs',
-                           'exec_rate', 'total_crashes', 'saved_crashes', 
-                           'total_hangs', 'saved_hangs', 'coverage'])
+            writer.writerow(CSV_COLUMNS)
 
-    def record(self, total_execs: int, exec_rate: float, total_crashes: int, 
+    def record(self, total_execs: int, exec_rate: float, total_crashes: int,
                saved_crashes: int, total_hangs: int, saved_hangs: int, coverage: int = 0):
         """
         记录一个时间快照
@@ -88,20 +104,27 @@ class Evaluator:
         else:
             elapsed = (now - self.start_time).total_seconds()
 
+        # 构建行数据（与 CSV_COLUMNS 对应）
+        row = [
+            now.isoformat(),      # timestamp
+            f'{elapsed:.1f}',     # elapsed_sec
+            total_execs,          # total_execs
+            f'{exec_rate:.1f}',   # exec_rate
+            total_crashes,        # total_crashes
+            saved_crashes,        # saved_crashes
+            total_hangs,          # total_hangs
+            saved_hangs,          # saved_hangs
+            coverage,             # coverage
+        ]
+
+        # 验证列数一致
+        assert len(row) == len(CSV_COLUMNS), \
+            f"Row length {len(row)} != CSV_COLUMNS length {len(CSV_COLUMNS)}"
+
         # 写入 CSV
         with open(self.csv_file, 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow([
-                now.isoformat(),
-                f'{elapsed:.1f}',
-                total_execs,
-                f'{exec_rate:.1f}',
-                total_crashes,
-                saved_crashes,
-                total_hangs,
-                saved_hangs,
-                coverage
-            ])
+            writer.writerow(row)
 
     def save_final_report(self, stats: dict):
         """

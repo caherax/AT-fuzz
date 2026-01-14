@@ -1,16 +1,40 @@
 """
 测试执行组件 (Component 1/6)
 职责：执行目标程序，获取返回值、执行时间、覆盖率等信息
+
+注意：修改 EXEC_RESULT_FIELDS 时，需要同步更新：
+1. execute() 方法的所有 return 语句
+2. monitor.py 中对 exec_result 的字段访问
 """
 
 import subprocess
 import tempfile
 import time
 import os
+import signal
 import resource
 from typing import Dict, Optional
 from config import CONFIG
 from utils import AFLSHM
+
+
+# ========== 返回结果字段定义 ==========
+# execute() 返回的字典必须包含这些字段
+EXEC_RESULT_FIELDS = (
+    'return_code',   # int: 返回码
+    'exec_time',     # float: 执行时间（秒）
+    'crashed',       # bool: 是否崩溃
+    'timeout',       # bool: 是否超时
+    'stderr',        # bytes: 标准错误输出（截断）
+    'coverage',      # bytes or None: 覆盖率 bitmap（如果启用）
+)
+
+
+def _validate_exec_result(result: Dict) -> Dict:
+    """验证执行结果包含所有必需字段"""
+    missing = set(EXEC_RESULT_FIELDS) - set(result.keys())
+    assert not missing, f"exec_result missing fields: {missing}"
+    return result
 
 
 class TestExecutor:
@@ -81,14 +105,14 @@ class TestExecutor:
             with open(self.input_file, 'wb') as f:
                 f.write(input_data)
         except Exception as e:
-            return {
+            return _validate_exec_result({
                 'return_code': -1,
                 'exec_time': 0.0,
                 'crashed': True,
                 'timeout': False,
                 'stderr': f"Failed to write input: {str(e)}".encode(),
                 'coverage': None
-            }
+            })
 
         # 替换命令中的 @@ 为输入文件路径
         if '@@' in self.target_args:
@@ -115,62 +139,84 @@ class TestExecutor:
                 os.setsid()
 
         # 执行目标程序
+        # 使用 Popen 而非 run，以便在超时时能正确杀死整个进程组
         start_time = time.perf_counter()
+        proc = None
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
                 shell=True,
-                timeout=self.timeout,
-                capture_output=True,
-                # cwd=os.path.dirname(self.target_path), # 移除 cwd 切换，避免相对路径问题
-                env=env,  # 传递环境变量
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
                 preexec_fn=set_limits
             )
+            try:
+                stdout, stderr = proc.communicate(timeout=self.timeout)
+            except subprocess.TimeoutExpired:
+                # 超时：杀死整个进程组
+                try:
+                    # 获取进程组 ID（由 setsid 创建）
+                    pgid = os.getpgid(proc.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
+                # 等待进程真正结束
+                proc.wait()
+
+                elapsed = time.perf_counter() - start_time
+                # 读取覆盖率
+                coverage = self.shm.read_bitmap() if self.shm else None
+                return _validate_exec_result({
+                    'return_code': -1,
+                    'exec_time': elapsed,
+                    'crashed': False,
+                    'timeout': True,
+                    'stderr': b'Execution timeout',
+                    'coverage': coverage
+                })
+
             elapsed = time.perf_counter() - start_time
 
             # 读取覆盖率
             coverage = self.shm.read_bitmap() if self.shm else None
 
             # 判断是否崩溃
-            crashed = (result.returncode < 0 # Python subprocess signal
-                    or result.returncode >= 128) # Shell signal convention (128 + signal)
+            crashed = (proc.returncode < 0  # Python subprocess signal
+                    or proc.returncode >= 128)  # Shell signal convention (128 + signal)
 
             stderr_max = CONFIG.get('stderr_max_len', 1000)
-            return {
-                'return_code': result.returncode,
+            return _validate_exec_result({
+                'return_code': proc.returncode,
                 'exec_time': elapsed,
                 'crashed': crashed,
                 'timeout': False,
-                'stderr': result.stderr[:stderr_max] if result.stderr else b'',
+                'stderr': stderr[:stderr_max] if stderr else b'',
                 'coverage': coverage
-            }
-
-        except subprocess.TimeoutExpired:
-            elapsed = time.perf_counter() - start_time
-
-            # 读取覆盖率
-            coverage = self.shm.read_bitmap() if self.shm else None
-
-            return {
-                'return_code': -1,
-                'exec_time': elapsed,
-                'crashed': False,
-                'timeout': True,
-                'stderr': b'Execution timeout',
-                'coverage': coverage
-            }
+            })
 
         except Exception as e:
+            # 确保清理子进程
+            if proc is not None:
+                try:
+                    pgid = os.getpgid(proc.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
+                try:
+                    proc.wait(timeout=1)
+                except Exception:
+                    pass
             elapsed = time.perf_counter() - start_time
             stderr_max = CONFIG.get('stderr_max_len', 1000)
-            return {
+            return _validate_exec_result({
                 'return_code': -1,
                 'exec_time': elapsed,
                 'crashed': True,
                 'timeout': False,
                 'stderr': str(e).encode()[:stderr_max],
                 'coverage': None
-            }
+            })
 
     def cleanup(self):
         """清理临时文件和 SHM"""

@@ -3,11 +3,21 @@
 职责：选择高价值种子进行变异
 
 已实现：基于能量的大根堆优先队列调度 (O(log n))
+
+注意：修改 SEED_FIELDS 时，需要同步更新：
+1. Seed dataclass 的字段
+2. fuzzer.py 中的 CHECKPOINT_SEED_FIELDS
+3. _serialize_seed / _deserialize_seed 方法
 """
 
 import heapq
 from typing import Optional
 from dataclasses import dataclass, field
+
+
+# ========== 字段定义（用于一致性检查） ==========
+# Seed 可序列化字段：修改时需同步 fuzzer.py 的 CHECKPOINT_SEED_FIELDS
+SEED_FIELDS = ('data', 'exec_count', 'coverage_bits', 'exec_time', 'energy')
 
 
 @dataclass(order=True)
@@ -24,6 +34,12 @@ class Seed:
 
     def __post_init__(self):
         self.sort_index = -self.energy
+        # 验证字段与 SEED_FIELDS 一致
+        actual_fields = set(SEED_FIELDS)
+        # 获取 dataclass 字段（排除 sort_index）
+        dataclass_fields = {f.name for f in self.__dataclass_fields__.values() if f.name != 'sort_index'}
+        assert actual_fields == dataclass_fields, \
+            f"Seed fields mismatch! SEED_FIELDS={actual_fields}, dataclass={dataclass_fields}"
 
     def update_energy(self, new_energy: float):
         self.energy = new_energy
