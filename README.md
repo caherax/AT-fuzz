@@ -130,6 +130,8 @@ python3 fuzzer.py \
 *   `--checkpoint-path`：检查点保存目录（默认：`<output>/checkpoints`）。
 *   `--resume-from`：从指定的 `checkpoint.json` 恢复运行。
 
+配置项（如 `--timeout` / `--mem-limit` / `--max-seed-size` / `--use-sandbox` 等）与 `config.py` 保持一致，并由配置元数据自动生成命令行参数；完整列表以 `python3 fuzzer.py --help` 为准。
+
 **示例：测试一个二进制程序**
 
 ```bash
@@ -191,6 +193,8 @@ python3 -m unittest discover -s tests -v
 
 - 在 `config.py` 中设置 `use_sandbox=True`。
 - 若系统缺少 `bwrap`，执行器会打印 warning 并自动回退为非沙箱运行（不影响基本功能）。
+
+建议：对于脚本类/可能产生子进程或执行外部命令的目标，优先使用命令行开关 `--use-sandbox`。
 
 ---
 
@@ -319,7 +323,7 @@ docker run -it \
 
 ## 🛠️ 高级配置
 
-编辑 `config.py` 可调整：
+编辑 `config.py` 可调整（以下为常用项；完整列表以 `python3 fuzzer.py --help` 与 `config.py` 为准）：
 
 *   **`timeout`**：单次执行超时时间（秒）。
 *   **`mem_limit`**：目标程序内存限制（MB）。
@@ -332,6 +336,8 @@ docker run -it \
 *   **`max_seeds_memory`**：种子队列最大内存（MB）。
 *   **`stderr_max_len`**：单次执行 stderr 保存上限（字节）。
 *   **`crash_info_max_len`**：崩溃/超时样本记录中 stderr 保存上限（字节）。
+
+配置系统设计与“命令行参数自动生成”的实现细节见 [docs/DESIGN.md](docs/DESIGN.md)。
 
 ---
 

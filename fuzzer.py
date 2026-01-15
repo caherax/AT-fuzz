@@ -569,6 +569,7 @@ class Fuzzer:
 def main():
     """主函数"""
     import argparse
+    from config import CONFIG_SCHEMA, apply_cli_args_to_config
 
     parser = argparse.ArgumentParser(
         description='Fuzzer for mutation-based fuzzing',
@@ -585,44 +586,33 @@ def main():
     parser.add_argument('--checkpoint-path', help='Directory to save checkpoints (default: <output>/checkpoints)')
     parser.add_argument('--resume-from', help='Path to checkpoint.json to resume from')
 
-    # CONFIG 参数覆盖
-    parser.add_argument('--timeout', type=float, help='Execution timeout (seconds)')
-    parser.add_argument('--mem-limit', type=int, help='Memory limit for target (MB)')
-    parser.add_argument('--bitmap-size', type=int, help='Coverage bitmap size')
-    parser.add_argument('--max-seed-size', type=int, help='Max seed size (bytes) for initial and mutated seeds')
-    parser.add_argument('--havoc-iterations', type=int, help='Havoc mutation iterations (higher = more mutations)')
-    parser.add_argument('--seed-sort-strategy', choices=['energy', 'fifo'], help='Seed scheduling strategy')
-    parser.add_argument('--max-seeds', type=int, help='Max seed count')
-    parser.add_argument('--max-seeds-memory', type=int, help='Max seed set memory (MB)')
-    parser.add_argument('--log-interval', type=int, help='Log update interval (seconds)')
-    parser.add_argument('--stderr-max-len', type=int, help='Max stderr length (bytes)')
-    parser.add_argument('--crash-info-max-len', type=int, help='Max crash info stderr length (bytes)')
+    # 自动从 CONFIG_SCHEMA 生成配置项参数
+    for config_key, meta in CONFIG_SCHEMA.items():
+        # 确定参数类型（bool 类型使用 action='store_true'）
+        if meta.type == bool:
+            parser.add_argument(
+                meta.cli_name,
+                action='store_true',
+                help=f"{meta.cli_help} (default: {CONFIG[config_key]})"
+            )
+        elif meta.cli_choices:
+            parser.add_argument(
+                meta.cli_name,
+                type=meta.type,
+                choices=meta.cli_choices,
+                help=f"{meta.cli_help} (default: {CONFIG[config_key]})"
+            )
+        else:
+            parser.add_argument(
+                meta.cli_name,
+                type=meta.type,
+                help=f"{meta.cli_help} (default: {CONFIG[config_key]})"
+            )
 
     args = parser.parse_args()
 
-    # 用命令行参数覆盖 CONFIG
-    if args.timeout is not None:
-        CONFIG['timeout'] = args.timeout
-    if args.mem_limit is not None:
-        CONFIG['mem_limit'] = args.mem_limit
-    if args.bitmap_size is not None:
-        CONFIG['bitmap_size'] = args.bitmap_size
-    if args.havoc_iterations is not None:
-        CONFIG['havoc_iterations'] = args.havoc_iterations
-    if args.seed_sort_strategy is not None:
-        CONFIG['seed_sort_strategy'] = args.seed_sort_strategy
-    if args.max_seed_size is not None:
-        CONFIG['max_seed_size'] = args.max_seed_size
-    if args.max_seeds is not None:
-        CONFIG['max_seeds'] = args.max_seeds
-    if args.max_seeds_memory is not None:
-        CONFIG['max_seeds_memory'] = args.max_seeds_memory
-    if args.log_interval is not None:
-        CONFIG['log_interval'] = args.log_interval
-    if args.stderr_max_len is not None:
-        CONFIG['stderr_max_len'] = args.stderr_max_len
-    if args.crash_info_max_len is not None:
-        CONFIG['crash_info_max_len'] = args.crash_info_max_len
+    # 自动应用命令行参数到 CONFIG
+    apply_cli_args_to_config(args)
 
     # 创建模糊器
     fuzzer = Fuzzer(

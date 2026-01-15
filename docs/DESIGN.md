@@ -329,6 +329,31 @@ Havoc 通过随机堆叠多种算子生成更“野”的输入，用来快速�
 
 Splice 将两个种子切片后拼接，适合结构化输入（多个字段/块）的探索。
 
+### 4.5 配置系统与命令行一致性
+
+AT-Fuzz 将“默认配置、类型约束、验证规则、命令行参数”统一收敛到 [config.py](config.py) 中，确保配置体系符合软件工程的单一事实来源（Single Source of Truth）原则。
+
+核心机制：
+
+1. `config.py` 定义两部分：
+   - `CONFIG`：默认值（运行时读取）。
+   - `CONFIG_SCHEMA`：配置元数据（类型、validator、命令行参数名/帮助、枚举 choices）。
+
+2. `fuzzer.py` 通过遍历 `CONFIG_SCHEMA` 自动生成 argparse 参数，并将解析结果统一应用到 `CONFIG`，避免在多处重复维护参数列表。
+
+3. 命令行覆盖规则：
+   - 数值/字符串配置：通过 `--key value` 覆盖。
+   - 枚举配置：通过 `choices` 限制可选值（例如 `--seed-sort-strategy energy|fifo`）。
+   - 布尔开关：使用 flag 形式（例如 `--use-sandbox`），用于在需要隔离副作用的目标上启用 bubblewrap。
+
+4. Fail-fast 校验：启动时会对默认配置做校验；运行时若通过命令行覆盖，类型转换由 argparse 保证，值域/约束由 `validator` 保证。
+
+添加新配置项的步骤（最小化维护成本）：
+
+1. 在 `CONFIG_SCHEMA` 中新增元数据（包含类型与校验规则）。
+2. 在 `CONFIG` 中新增默认值。
+3.（可选）补充/更新单元测试与 README 的使用说明。
+
 ---
 
 ## 五、技术难点与解决方案
