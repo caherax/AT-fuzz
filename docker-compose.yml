@@ -10,4 +10,5 @@ services:
     working_dir: /fuzzer
     stdin_open: true
     tty: true
+    privileged: true  # 允许 bwrap 运行
     command: /bin/bash
