@@ -1,13 +1,10 @@
-FROM ubuntu:22.04
+FROM aflplusplus/aflplusplus:latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies, AFL++ and build tools
+# Install system dependencies and build tools
 RUN apt-get update && apt-get install -y \
     build-essential \
-    python3 \
-    python3-pip \
-    afl++ \
     wget \
     tar \
     cmake \
@@ -16,13 +13,14 @@ RUN apt-get update && apt-get install -y \
     libtool \
     pkg-config \
     file \
+    bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-RUN pip3 install matplotlib
-
-# Set AFLPP environment variable for scripts
-ENV AFLPP=/usr/bin
+# Create Python virtual environment and install dependencies
+RUN python3 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN /opt/venv/bin/pip install --upgrade pip setuptools wheel && \
+    /opt/venv/bin/pip install matplotlib
 
 # Set working directory
 WORKDIR /fuzzer

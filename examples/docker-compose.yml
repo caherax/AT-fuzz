@@ -1,0 +1,112 @@
+
+services:
+  # 交互式开发容器
+  fuzzer:
+    build: .
+    image: at-fuzz:ubuntu2204
+    container_name: at-fuzz-dev
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  # T01: cxxfilt (binutils)
+  test-t01:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t01-cxxfilt
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T01"
+    restart: unless-stopped
+
+  # T02: readelf (binutils)
+  test-t02:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t02-readelf
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T02"
+    restart: unless-stopped
+
+  # T03: nm-new (binutils)
+  test-t03:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t03-nm
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T03"
+    restart: unless-stopped
+
+  # T04: objdump (binutils)
+  test-t04:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t04-objdump
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T04"
+    restart: unless-stopped
+
+  # T05: djpeg (libjpeg)
+  test-t05:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t05-djpeg
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T05"
+    restart: unless-stopped
+
+  # T06: readpng (libpng)
+  test-t06:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t06-readpng
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T06"
+
+  # T07: xmllint (libxml2)
+  test-t07:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t07-xmllint
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T07"
+    restart: unless-stopped
+
+  # T08: lua
+  test-t08:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t08-lua
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T08"
+    restart: unless-stopped
+
+  # T09: mjs
+  test-t09:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t09-mjs
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T09"
+    restart: unless-stopped
+
+  # T10: tcpdump
+  test-t10:
+    image: at-fuzz:ubuntu2204
+    container_name: fuzz-t10-tcpdump
+    volumes:
+      - ..:/fuzzer
+    working_dir: /fuzzer
+    command: bash -c "bash /fuzzer/examples/run_target.sh T10"
+    restart: unless-stopped

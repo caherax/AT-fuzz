@@ -75,18 +75,17 @@ docker run -it \
 **方法三：本地环境 (Ubuntu 22.04+)**
 
 ```bash
-# 安装系统依赖和 AFL++
+# 安装 AFL++ 和系统依赖
 sudo apt-get update
-sudo apt-get install -y build-essential python3 python3-pip python3-venv afl++
+sudo apt-get install -y build-essential python3 python3-pip python3-venv afl++ bubblewrap
 
-# 安装 Python 依赖（推荐 venv）
+# 创建并激活虚拟环境
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -U pip
-python -m pip install matplotlib
 
-# 备选方案：使用系统包管理器安装（无需 venv）
-# sudo apt-get install -y python3-matplotlib
+# 安装 Python 依赖
+pip install --upgrade pip
+pip install matplotlib
 ```
 
 ---
@@ -266,8 +265,12 @@ AT-fuzz/
 │   └── evaluator.py        # 评估组件
 ├── tests/                  # 单元测试
 ├── docs/                   # 文档
-│   ├── DESIGN.md           # 设计文档
-│   └── CODE_ANALYSIS.md    # 代码分析
+│   └── DESIGN.md           # 设计文档
+├── examples/               # 示例与实验资源
+│   ├── sources/            # 测试目标源代码（含 tar.gz）
+│   ├── seeds/              # 各测试目标的种子库
+│   ├── run_target.sh       # 统一的目标编译和运行脚本
+│   └── docker-compose.yml  # 实验用 Docker Compose 配置
 ├── Dockerfile              # 容器配置
 ├── docker-compose.yml      # Docker Compose 配置
 └── README.md               # 本文件
@@ -275,10 +278,14 @@ AT-fuzz/
 
 ---
 
-## 📝 文档
+## 📝 文档与示例
 
-- **[docs/DESIGN.md](docs/DESIGN.md)** - 系统设计文档（过程报告）
-- **[docs/CODE_ANALYSIS.md](docs/CODE_ANALYSIS.md)** - 代码分析文档
+- **[docs/DESIGN.md](docs/DESIGN.md)** - 系统设计文档（包含技术难点与实现方案）
+- **[examples/](examples/)** - 实验资源与演示脚本
+  - `run_target.sh` - 统一的测试目标编译与运行脚本
+  - `sources/` - 测试目标源代码（tar.gz 格式）
+  - `seeds/` - 各目标的初始种子库
+  - `docker-compose.yml` - 批量实验的 Docker Compose 配置
 
 ---
 
@@ -336,6 +343,7 @@ docker run -it \
 *   **`max_seeds_memory`**：种子队列最大内存（MB）。
 *   **`stderr_max_len`**：单次执行 stderr 保存上限（字节）。
 *   **`crash_info_max_len`**：崩溃/超时样本记录中 stderr 保存上限（字节）。
+*   **`use_sandbox`**：是否启用 bubblewrap 沙箱（需要系统已安装 `bwrap`）。
 
 配置系统设计与“命令行参数自动生成”的实现细节见 [docs/DESIGN.md](docs/DESIGN.md)。
 
