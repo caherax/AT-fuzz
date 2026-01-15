@@ -173,6 +173,7 @@ class TestExecutor:
                 '--dev', '/dev',
                 '--proc', '/proc',
                 '--bind', self.temp_dir, self.temp_dir,
+                '--unshare-pid',  # 隔离 PID 命名空间，确保清理所有子进程
                 '--die-with-parent',
                 '--new-session'
             ]
@@ -353,6 +354,16 @@ class TestExecutor:
                 'coverage': None
             })
         finally:
+            # 确保清理残留进程（防止僵尸进程/后台进程泄漏）
+            # 无论正常退出还是异常，都尝试清理进程组
+            if proc:
+                try:
+                    # 使用 killpg 杀死整个进程组
+                    # 由于 preexec_fn=os.setsid，pgid 通常等于 pid
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
+
             # 确保文件句柄关闭（包括超时和异常情况）
             if stdout_f and not stdout_f.closed: stdout_f.close()
             if stderr_f and not stderr_f.closed: stderr_f.close()
