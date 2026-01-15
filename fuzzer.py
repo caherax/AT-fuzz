@@ -115,6 +115,10 @@ class Fuzzer:
     def _signal_handler(self, signum, frame):
         """处理中断信号"""
         print("\n[!] Fuzzer interrupted, saving results...")
+        try:
+            self._save_checkpoint(reason="interrupt")
+        except Exception as e:
+            print(f"[!] Failed to save checkpoint: {e}")
         self._finalize()
         sys.exit(0)
 
