@@ -11,10 +11,12 @@
 - simplify_trace: 简化覆盖率（只保留 0/非0）
 - has_new_bits: 检查是否有新路径
 
-注意：修改 STATS_FIELDS 时，需要同步更新：
-1. __init__ 中的 self.stats 初始化
-2. save_stats_to_file 中的 exportable_stats
-3. fuzzer.py 中的 CHECKPOINT_MONITOR_STATS_FIELDS
+类型安全设计：
+- 使用 MonitorStats (dataclass) 管理统计数据
+- 自动生成 to_dict() / update_from_dict() 方法
+- STATS_FIELDS 自动从 dataclass 提取，无需手动同步
+
+详见：docs/DESIGN.md（“字段一致性与类型安全”）
 """
 
 import json
@@ -22,24 +24,39 @@ import hashlib
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Optional
+from dataclasses import dataclass, asdict, fields
 
 from config import CONFIG
 
 
-# ========== 字段定义（用于一致性检查） ==========
-# Monitor 统计字段：修改时需同步 fuzzer.py 的 CHECKPOINT_MONITOR_STATS_FIELDS
-STATS_FIELDS = (
-    'total_execs',
-    'total_crashes',
-    'total_hangs',
-    'saved_crashes',
-    'saved_hangs',
-    'start_time',
-    'interesting_inputs',
-    'total_coverage_bits',
-)
+# ========== 数据结构定义 ==========
+# 使用 dataclass 确保字段一致性，自动生成访问方法
+@dataclass
+class MonitorStats:
+    """监控统计数据结构"""
+    total_execs: int = 0
+    total_crashes: int = 0
+    total_hangs: int = 0
+    saved_crashes: int = 0
+    saved_hangs: int = 0
+    start_time: str = ''  # ISO format
+    interesting_inputs: int = 0
+    total_coverage_bits: int = 0
 
-# Monitor bitmap 字段：修改时需同步 fuzzer.py 的 CHECKPOINT_MONITOR_BITMAP_FIELDS
+    def to_dict(self) -> dict:
+        """转换为字典"""
+        return asdict(self)
+
+    def update_from_dict(self, data: dict):
+        """从字典更新字段"""
+        for key, value in data.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+
+# 导出字段名称元组（兼容旧代码）
+STATS_FIELDS = tuple(f.name for f in fields(MonitorStats))
+
+# Monitor bitmap 字段
 BITMAP_FIELDS = ('virgin_bits', 'virgin_crash', 'virgin_tmout')
 
 
@@ -97,21 +114,8 @@ class ExecutionMonitor:
         self._crash_hashes: set[int] = set()
         self._hang_hashes: set[int] = set()
 
-        # 统计数据
-        self.stats = {
-            'total_execs': 0,
-            'total_crashes': 0,
-            'total_hangs': 0,
-            'saved_crashes': 0,
-            'saved_hangs': 0,
-            'start_time': datetime.now().isoformat(),
-            'interesting_inputs': 0,
-            'total_coverage_bits': 0
-        }
-
-        # 验证 stats 字段与 STATS_FIELDS 一致
-        assert set(self.stats.keys()) == set(STATS_FIELDS), \
-            f"Stats fields mismatch! Expected {STATS_FIELDS}, got {tuple(self.stats.keys())}"
+        # 统计数据（使用 dataclass）
+        self.stats = MonitorStats(start_time=datetime.now().isoformat())
 
         # 验证 bitmap 属性存在
         for field in BITMAP_FIELDS:
@@ -131,7 +135,7 @@ class ExecutionMonitor:
         Returns:
             是否是有趣的执行（新覆盖率、崩溃或其他异常）
         """
-        self.stats['total_execs'] += 1
+        self.stats.total_execs += 1
 
         is_interesting = False
 
@@ -189,7 +193,7 @@ class ExecutionMonitor:
         if has_new and virgin is self.virgin_bits:
             # 重新计算总覆盖位数（仅对正常执行的 virgin_bits）
             # 计算已触发的位数 = 总位数 - 未触发位数
-            self.stats['total_coverage_bits'] = sum(
+            self.stats.total_coverage_bits = sum(
                 (0xFF ^ b).bit_count() for b in virgin
             )
 
@@ -207,7 +211,7 @@ class ExecutionMonitor:
         Returns:
             是否保存了新的 crash
         """
-        self.stats['total_crashes'] += 1
+        self.stats.total_crashes += 1
 
         coverage = exec_result.get('coverage')
         stderr = exec_result.get('stderr', b'')
@@ -229,8 +233,8 @@ class ExecutionMonitor:
             self._crash_hashes.add(crash_hash)
 
         # 保存新的 crash
-        self.stats['saved_crashes'] += 1
-        crash_id = self.stats['total_execs']
+        self.stats.saved_crashes += 1
+        crash_id = self.stats.total_execs
         sig = abs(exec_result.get('return_code', 0))  # 信号编号
 
         filename = f"crash_{crash_id:06d}_sig{sig:02d}"
@@ -249,7 +253,7 @@ class ExecutionMonitor:
         }
         info_file.write_text(json.dumps(info, indent=2))
 
-        print(f"[Monitor] New CRASH found! ({self.stats['saved_crashes']} unique)")
+        print(f"[Monitor] New CRASH found! ({self.stats.saved_crashes} unique)")
         return True
 
     def _handle_hang(self, input_data: bytes, exec_result: Dict) -> bool:
@@ -259,7 +263,7 @@ class ExecutionMonitor:
         Returns:
             是否保存了新的 hang
         """
-        self.stats['total_hangs'] += 1
+        self.stats.total_hangs += 1
 
         coverage = exec_result.get('coverage')
 
@@ -278,8 +282,8 @@ class ExecutionMonitor:
             self._hang_hashes.add(hang_hash)
 
         # 保存新的 hang
-        self.stats['saved_hangs'] += 1
-        hang_id = self.stats['total_execs']
+        self.stats.saved_hangs += 1
+        hang_id = self.stats.total_execs
 
         filename = f"hang_{hang_id:06d}"
         hang_file = self.hangs_dir / filename
@@ -298,14 +302,14 @@ class ExecutionMonitor:
         }
         info_file.write_text(json.dumps(info, indent=2))
 
-        print(f"[Monitor] New HANG found! ({self.stats['saved_hangs']} unique)")
+        print(f"[Monitor] New HANG found! ({self.stats.saved_hangs} unique)")
         return True
 
     def _save_interesting(self, input_data: bytes, reason: str):
         """保存有趣的输入（非崩溃但值得关注）"""
-        self.stats['interesting_inputs'] += 1
+        self.stats.interesting_inputs += 1
 
-        filename = f"{reason}_{self.stats['total_execs']}"
+        filename = f"{reason}_{self.stats.total_execs}"
         queue_file = self.queue_dir / filename
         queue_file.write_bytes(input_data)
 
@@ -313,17 +317,9 @@ class ExecutionMonitor:
         """保存统计信息到文件"""
         stats_file = self.output_dir / 'stats.json'
 
-        exportable_stats = {
-            'total_execs': self.stats['total_execs'],
-            'total_crashes': self.stats['total_crashes'],
-            'saved_crashes': self.stats['saved_crashes'],
-            'total_hangs': self.stats['total_hangs'],
-            'saved_hangs': self.stats['saved_hangs'],
-            'start_time': self.stats['start_time'],
-            'end_time': datetime.now().isoformat(),
-            'interesting_inputs': self.stats['interesting_inputs'],
-            'total_coverage_bits': self.stats['total_coverage_bits']
-        }
+        # 使用 dataclass 的 to_dict() 方法，自动包含所有字段
+        exportable_stats = self.stats.to_dict()
+        exportable_stats['end_time'] = datetime.now().isoformat()
 
         stats_file.write_text(json.dumps(exportable_stats, indent=2))
         print(f"[Monitor] Stats saved to {stats_file}")
@@ -358,8 +354,8 @@ if __name__ == '__main__':
         }
         monitor.process_execution(b'crash input', crash_result)
 
-        # 打印统计（直接访问 stats 属性）
-        print(f"\nStats: {monitor.stats}")
+        # 打印统计（使用 dataclass）
+        print(f"\nStats: {monitor.stats.to_dict()}")
 
         # 保存统计
         monitor.save_stats_to_file()

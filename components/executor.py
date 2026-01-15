@@ -2,9 +2,12 @@
 测试执行组件 (Component 1/6)
 职责：执行目标程序，获取返回值、执行时间、覆盖率等信息
 
-注意：修改 EXEC_RESULT_FIELDS 时，需要同步更新：
-1. execute() 方法的所有 return 语句
-2. monitor.py 中对 exec_result 的字段访问
+类型安全设计：
+- 使用 ExecutionResult (TypedDict) 定义返回值结构
+- IDE 和 mypy 自动验证字段完整性和类型正确性
+- 无需手动同步字段定义与使用
+
+详见：docs/DESIGN.md（“字段一致性与类型安全”）
 """
 
 import subprocess
@@ -14,28 +17,21 @@ import os
 import signal
 import resource
 import shutil
-from typing import Dict, Optional
+from typing import TypedDict, Optional
 from config import CONFIG
 from utils import AFLSHM
 
 
-# ========== 返回结果字段定义 ==========
-# execute() 返回的字典必须包含这些字段
-EXEC_RESULT_FIELDS = (
-    'return_code',   # int: 返回码
-    'exec_time',     # float: 执行时间（秒）
-    'crashed',       # bool: 是否崩溃
-    'timeout',       # bool: 是否超时
-    'stderr',        # bytes: 标准错误输出（截断）
-    'coverage',      # bytes or None: 覆盖率 bitmap（如果启用）
-)
-
-
-def _validate_exec_result(result: Dict) -> Dict:
-    """验证执行结果包含所有必需字段"""
-    missing = set(EXEC_RESULT_FIELDS) - set(result.keys())
-    assert not missing, f"exec_result missing fields: {missing}"
-    return result
+# ========== 返回结果类型定义 ==========
+# 使用 TypedDict 确保类型安全，避免手动同步字段
+class ExecutionResult(TypedDict):
+    """执行结果数据结构"""
+    return_code: int        # 返回码
+    exec_time: float        # 执行时间（秒）
+    crashed: bool           # 是否崩溃
+    timeout: bool           # 是否超时
+    stderr: bytes           # 标准错误输出（截断）
+    coverage: Optional[bytes]  # 覆盖率 bitmap（如果启用）
 
 
 class TestExecutor:
@@ -90,7 +86,7 @@ class TestExecutor:
         print(f"[Executor] Initialized for {target_path}")
         print(f"[Executor] Temp dir: {self.temp_dir}")
 
-    def execute(self, input_data: bytes) -> Dict:
+    def execute(self, input_data: bytes) -> ExecutionResult:
         """
         执行目标程序
 
@@ -98,14 +94,7 @@ class TestExecutor:
             input_data: 输入数据（字节）
 
         Returns:
-            {
-                'return_code': int,        # 返回码
-                'exec_time': float,        # 执行时间（秒）
-                'crashed': bool,           # 是否崩溃
-                'timeout': bool,           # 是否超时
-                'stderr': bytes,           # 标准错误输出（截断）
-                'coverage': bytes or None  # 覆盖率 bitmap（如果启用）
-            }
+            ExecutionResult 类型的字典（包含 return_code, exec_time, crashed, timeout, stderr, coverage）
         """
         # 清空 SHM bitmap
         if self.shm:
@@ -116,14 +105,14 @@ class TestExecutor:
             with open(self.input_file, 'wb') as f:
                 f.write(input_data)
         except Exception as e:
-            return _validate_exec_result({
-                'return_code': -1,
-                'exec_time': 0.0,
-                'crashed': True,
-                'timeout': False,
-                'stderr': f"Failed to write input: {str(e)}".encode(),
-                'coverage': None
-            })
+            return ExecutionResult(
+                return_code=-1,
+                exec_time=0.0,
+                crashed=True,
+                timeout=False,
+                stderr=f"Failed to write input: {str(e)}".encode(),
+                coverage=None
+            )
 
         # 替换命令中的 @@ 为输入文件路径
         if '@@' in self.target_args:
@@ -289,14 +278,14 @@ class TestExecutor:
                 elapsed = time.perf_counter() - start_time
                 # 读取覆盖率
                 coverage = self.shm.read_bitmap() if self.shm else None
-                return _validate_exec_result({
-                    'return_code': -1,
-                    'exec_time': elapsed,
-                    'crashed': False,
-                    'timeout': True,
-                    'stderr': b'Execution timeout',
-                    'coverage': coverage
-                })
+                return ExecutionResult(
+                    return_code=-1,
+                    exec_time=elapsed,
+                    crashed=False,
+                    timeout=True,
+                    stderr=b'Execution timeout',
+                    coverage=coverage
+                )
 
             elapsed = time.perf_counter() - start_time
 
@@ -321,14 +310,14 @@ class TestExecutor:
             except Exception:
                 pass
 
-            return _validate_exec_result({
-                'return_code': proc.returncode,
-                'exec_time': elapsed,
-                'crashed': crashed,
-                'timeout': False,
-                'stderr': stderr_content,
-                'coverage': coverage
-            })
+            return ExecutionResult(
+                return_code=proc.returncode,
+                exec_time=elapsed,
+                crashed=crashed,
+                timeout=False,
+                stderr=stderr_content,
+                coverage=coverage
+            )
 
         except Exception as e:
             # 确保清理子进程
@@ -345,14 +334,14 @@ class TestExecutor:
 
             elapsed = time.perf_counter() - start_time
             stderr_max = CONFIG.get('stderr_max_len', 1000)
-            return _validate_exec_result({
-                'return_code': -1,
-                'exec_time': elapsed,
-                'crashed': True,
-                'timeout': False,
-                'stderr': str(e).encode()[:stderr_max],
-                'coverage': None
-            })
+            return ExecutionResult(
+                return_code=-1,
+                exec_time=elapsed,
+                crashed=True,
+                timeout=False,
+                stderr=str(e).encode()[:stderr_max],
+                coverage=None
+            )
         finally:
             # 确保清理残留进程（防止僵尸进程/后台进程泄漏）
             # 无论正常退出还是异常，都尝试清理进程组

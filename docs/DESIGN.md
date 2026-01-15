@@ -154,9 +154,11 @@ class TestExecutor:
       use_coverage: bool = False,
    ) -> None: ...
 
-   def execute(self, input_data: bytes) -> dict: ...
+   def execute(self, input_data: bytes) -> ExecutionResult: ...
    def cleanup(self) -> None: ...
 ```
+
+说明：`ExecutionResult` 在实现中使用 `TypedDict` 描述字段结构；运行时依然是普通 `dict`，但字段集合由类型定义作为单一事实来源，避免“字段列表/校验函数/访问方”多处手工同步。
 
 **实现要点**：
 - 支持 `@@` 文件参数和 stdin 两种输入方式
@@ -172,12 +174,14 @@ class TestExecutor:
 ```python
 class ExecutionMonitor:
    def __init__(self, output_dir: str, use_coverage: bool = False) -> None: ...
-   def process_execution(self, input_data: bytes, exec_result: dict) -> bool: ...
+   def process_execution(self, input_data: bytes, exec_result: ExecutionResult) -> bool: ...
    def save_stats_to_file(self) -> None: ...
 
    # 统计数据直接通过 stats 属性访问
-   stats: dict  # 包含 total_execs, saved_crashes, saved_hangs, total_coverage_bits 等
+   stats: MonitorStats  # dataclass，包含 total_execs/saved_crashes/total_coverage_bits 等
 ```
+
+说明：监控统计使用 `MonitorStats`（`dataclass`）统一字段定义；序列化落盘时使用 `stats.to_dict()`，字段名列表（如 `STATS_FIELDS`）从 dataclass 字段动态导出，降低“改字段要同步改多处”的风险。
 
 **实现要点**：
 - 覆盖率用 virgin_bits bitmap 维护，参考 AFL++ 的 has_new_bits 判断"新覆盖"
@@ -251,7 +255,16 @@ class SeedScheduler:
 ```python
 class Evaluator:
    def __init__(self, output_dir: str) -> None: ...
-   def record(self, total_execs: int, exec_rate: float, total_crashes: int, coverage: int = 0) -> None: ...
+   def record(
+      self,
+      total_execs: int,
+      exec_rate: float,
+      total_crashes: int,
+      saved_crashes: int,
+      total_hangs: int,
+      saved_hangs: int,
+      coverage: int = 0,
+   ) -> None: ...
    def save_final_report(self, stats: dict) -> None: ...
    def generate_plots(self) -> None: ...
 ```
@@ -331,7 +344,7 @@ Splice 将两个种子切片后拼接，适合结构化输入（多个字段/块
 
 ### 4.5 配置系统与命令行一致性
 
-AT-Fuzz 将“默认配置、类型约束、验证规则、命令行参数”统一收敛到 [config.py](config.py) 中，确保配置体系符合软件工程的单一事实来源（Single Source of Truth）原则。
+AT-Fuzz 将“默认配置、类型约束、验证规则、命令行参数”统一收敛到 [config.py](../config.py) 中，确保配置体系符合软件工程的单一事实来源（Single Source of Truth）原则。
 
 核心机制：
 
@@ -353,6 +366,18 @@ AT-Fuzz 将“默认配置、类型约束、验证规则、命令行参数”统
 1. 在 `CONFIG_SCHEMA` 中新增元数据（包含类型与校验规则）。
 2. 在 `CONFIG` 中新增默认值。
 3.（可选）补充/更新单元测试与 README 的使用说明。
+
+### 4.6 字段一致性与类型安全
+
+项目中有若干“跨组件传递/持久化的结构化数据”（例如执行结果、监控统计、时间序列记录）。早期实现如果同时维护：字段名元组、构造逻辑、序列化逻辑、读取/访问逻辑，容易出现“改一处漏改另一处”的隐患。
+
+为降低这类人工同步成本，当前实现采用“类型定义即字段单一事实来源”的方式：
+
+1. 执行器返回值：使用 `ExecutionResult(TypedDict)` 定义字段集合与类型；测试可通过 `ExecutionResult.__annotations__` 反射字段名。
+2. 监控统计：使用 `MonitorStats(dataclass)` 定义统计字段；`STATS_FIELDS` 通过 `dataclasses.fields(MonitorStats)` 动态导出；序列化使用 `asdict()`。
+3. 评估时间序列：使用 `TimelineRecord(NamedTuple)` 定义 CSV 行结构；`CSV_COLUMNS` 通过 `TimelineRecord._fields` 自动导出；写入 CSV 直接 `writer.writerow(record)`。
+
+这套做法的目标是：在不引入额外运行时开销的前提下，让字段结构在代码层面“可检查、可推断、可复用”，并把字段变更的影响面收敛到单一位置。
 
 ---
 

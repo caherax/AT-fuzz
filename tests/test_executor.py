@@ -259,12 +259,14 @@ class TestExecutorResultFields(unittest.TestCase):
 
     def test_result_contains_all_fields(self):
         """测试结果包含所有必需字段"""
-        from components.executor import EXEC_RESULT_FIELDS
+        from components.executor import ExecutionResult
 
         executor = TestExecutor('/bin/cat', 'cat @@', timeout=5)
         result = executor.execute(b'test')
 
-        for field in EXEC_RESULT_FIELDS:
+        # ExecutionResult 是 TypedDict，通过 __annotations__ 获取字段
+        expected_fields = ExecutionResult.__annotations__.keys()
+        for field in expected_fields:
             self.assertIn(field, result, f"Missing field: {field}")
 
         executor.cleanup()

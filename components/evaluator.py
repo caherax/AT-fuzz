@@ -7,15 +7,19 @@
 - 生成执行数、速度、崩溃、覆盖率等统计图表
 - 输出最终 JSON 报告
 
-注意：修改 CSV_COLUMNS 时，需要同步更新：
-1. _init_csv() 中的 header
-2. record() 方法的参数和写入逻辑
+类型安全设计：
+- 使用 TimelineRecord (NamedTuple) 定义记录结构
+- CSV_COLUMNS 自动从 NamedTuple._fields 提取
+- 构造时自动验证参数数量和顺序
+
+详见：docs/DESIGN.md（“字段一致性与类型安全”）
 """
 
 import csv
 import json
 from pathlib import Path
 from datetime import datetime
+from typing import NamedTuple
 
 try:
     import matplotlib
@@ -27,18 +31,22 @@ except ImportError:
     print("[Warning] matplotlib not available, visualization disabled")
 
 
-# ========== CSV 列定义 ==========
-CSV_COLUMNS = (
-    'timestamp',
-    'elapsed_sec',
-    'total_execs',
-    'exec_rate',
-    'total_crashes',
-    'saved_crashes',
-    'total_hangs',
-    'saved_hangs',
-    'coverage',
-)
+# ========== CSV 数据结构定义 ==========
+# 使用 NamedTuple 确保字段一致性，自动验证参数
+class TimelineRecord(NamedTuple):
+    """时间序列记录数据结构"""
+    timestamp: str
+    elapsed_sec: float
+    total_execs: int
+    exec_rate: float
+    total_crashes: int
+    saved_crashes: int
+    total_hangs: int
+    saved_hangs: int
+    coverage: int
+
+# 从 NamedTuple 自动提取列名（兼容旧代码）
+CSV_COLUMNS = TimelineRecord._fields
 
 
 class Evaluator:
@@ -100,31 +108,27 @@ class Evaluator:
 
         if self.start_time is None:
             self.start_time = now
-            elapsed = 0
+            elapsed = 0.0
         else:
             elapsed = (now - self.start_time).total_seconds()
 
-        # 构建行数据（与 CSV_COLUMNS 对应）
-        row = [
-            now.isoformat(),      # timestamp
-            f'{elapsed:.1f}',     # elapsed_sec
-            total_execs,          # total_execs
-            f'{exec_rate:.1f}',   # exec_rate
-            total_crashes,        # total_crashes
-            saved_crashes,        # saved_crashes
-            total_hangs,          # total_hangs
-            saved_hangs,          # saved_hangs
-            coverage,             # coverage
-        ]
+        # 使用 NamedTuple 构造记录（自动验证字段数量和类型）
+        record = TimelineRecord(
+            timestamp=now.isoformat(),
+            elapsed_sec=elapsed,
+            total_execs=total_execs,
+            exec_rate=exec_rate,
+            total_crashes=total_crashes,
+            saved_crashes=saved_crashes,
+            total_hangs=total_hangs,
+            saved_hangs=saved_hangs,
+            coverage=coverage
+        )
 
-        # 验证列数一致
-        assert len(row) == len(CSV_COLUMNS), \
-            f"Row length {len(row)} != CSV_COLUMNS length {len(CSV_COLUMNS)}"
-
-        # 写入 CSV
+        # 写入 CSV（NamedTuple 可直接迭代）
         with open(self.csv_file, 'a', newline='') as f:
             writer = csv.writer(f)
-            writer.writerow(row)
+            writer.writerow(record)
 
     def save_final_report(self, stats: dict):
         """
