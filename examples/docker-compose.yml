@@ -10,6 +10,7 @@ services:
     working_dir: /fuzzer
     stdin_open: true
     tty: true
+    privileged: true  # 允许 bwrap 运行
     command: /bin/bash
 
   # T01: cxxfilt (binutils)
@@ -85,6 +86,7 @@ services:
   test-t08:
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t08-lua
+    privileged: true  # 允许 bwrap 运行
     volumes:
       - ..:/fuzzer
     working_dir: /fuzzer
@@ -95,6 +97,7 @@ services:
   test-t09:
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t09-mjs
+    privileged: true  # 允许 bwrap 运行
     volumes:
       - ..:/fuzzer
     working_dir: /fuzzer
