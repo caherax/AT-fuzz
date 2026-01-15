@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     libtool \
     pkg-config \
     file \
+    bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
