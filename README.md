@@ -67,10 +67,12 @@ docker-compose down
 docker build -t at-fuzz .
 
 # 运行容器（交互模式）
-docker run -it \
+docker run -it --privileged \
     -v $(pwd):/fuzzer \
     at-fuzz
 ```
+
+> **注意**：如果不使用沙箱功能 (`--use-sandbox`)，可以移除 `--privileged` 参数。但通过 bubblewrap 进行隔离需要该权限。
 
 **方法三：本地环境 (Ubuntu 22.04+)**
 

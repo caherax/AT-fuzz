@@ -1,0 +1,16 @@
+
+services:
+  # 交互式开发容器
+  fuzzer:
+    build:
+      context: .
+      dockerfile: Dockerfile.ubuntu2204
+    image: at-fuzz:ubuntu2204
+    container_name: at-fuzz-ubuntu2204
+    volumes:
+      - .:/fuzzer
+    working_dir: /fuzzer
+    stdin_open: true
+    tty: true
+    privileged: true  # 允许 bwrap 运行
+    command: /bin/bash
