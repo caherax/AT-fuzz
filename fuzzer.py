@@ -157,9 +157,9 @@ class Fuzzer:
         # 更新统计并打印新覆盖率
         if is_interesting:
             stats = self.monitor.stats
-            if stats['total_coverage_bits'] > self.last_coverage:
-                print(f"[+] New coverage: {stats['total_coverage_bits']}")
-                self.last_coverage = stats['total_coverage_bits']
+            if stats.total_coverage_bits > self.last_coverage:
+                print(f"[+] New coverage: {stats.total_coverage_bits}")
+                self.last_coverage = stats.total_coverage_bits
 
         # 定期输出统计信息和快照 (基于时间间隔)
         if time.time() - self.last_snapshot_time >= CONFIG['log_interval']:
@@ -279,7 +279,7 @@ class Fuzzer:
         stats = self.monitor.stats
 
         # 计算近期执行速率（自上次更新以来）
-        recent_execs = stats['total_execs'] - self.last_execs
+        recent_execs = stats.total_execs - self.last_execs
         exec_rate = recent_execs / elapsed_recent if elapsed_recent > 0 else 0
 
         # 输出进度日志
@@ -288,26 +288,26 @@ class Fuzzer:
         seconds = int(elapsed_total % 60)
 
         print(f"[*] Time: {hours}:{minutes:02d}:{seconds:02d} | "
-              f"Execs: {stats['total_execs']:8d} | "
+              f"Execs: {stats.total_execs:8d} | "
               f"Rate: {exec_rate:6.1f}/s | "
-              f"Coverage: {stats['total_coverage_bits']:5d} | "
-              f"Crashes: {stats['saved_crashes']}/{stats['total_crashes']} | "
-              f"Hangs: {stats['saved_hangs']}/{stats['total_hangs']}")
+              f"Coverage: {stats.total_coverage_bits:5d} | "
+              f"Crashes: {stats.saved_crashes}/{stats.total_crashes} | "
+              f"Hangs: {stats.saved_hangs}/{stats.total_hangs}")
 
         # 保存快照数据
         self.evaluator.record(
-            total_execs=stats['total_execs'],
+            total_execs=stats.total_execs,
             exec_rate=exec_rate,
-            total_crashes=stats['total_crashes'],
-            saved_crashes=stats['saved_crashes'],
-            total_hangs=stats['total_hangs'],
-            saved_hangs=stats['saved_hangs'],
-            coverage=stats['total_coverage_bits']
+            total_crashes=stats.total_crashes,
+            saved_crashes=stats.saved_crashes,
+            total_hangs=stats.total_hangs,
+            saved_hangs=stats.saved_hangs,
+            coverage=stats.total_coverage_bits
         )
 
         # 更新追踪变量
         self.last_snapshot_time = current_time
-        self.last_execs = stats['total_execs']
+        self.last_execs = stats.total_execs
 
     def _finalize(self):
         """完成模糊测试，保存结果"""
@@ -323,14 +323,14 @@ class Fuzzer:
             'target_id': self.target_id,
             'target_path': self.target_path,
             'duration': elapsed,
-            'total_execs': stats['total_execs'],
-            'total_crashes': stats['total_crashes'],
-            'total_hangs': stats['total_hangs'],
-            'saved_crashes': stats['saved_crashes'],
-            'saved_hangs': stats['saved_hangs'],
-            'total_coverage_bits': stats['total_coverage_bits'],
+            'total_execs': stats.total_execs,
+            'total_crashes': stats.total_crashes,
+            'total_hangs': stats.total_hangs,
+            'saved_crashes': stats.saved_crashes,
+            'saved_hangs': stats.saved_hangs,
+            'total_coverage_bits': stats.total_coverage_bits,
             'total_seeds': len(self.scheduler.seeds),
-            'exec_rate': stats['total_execs'] / elapsed if elapsed > 0 else 0
+            'exec_rate': stats.total_execs / elapsed if elapsed > 0 else 0
         }
         self.evaluator.save_final_report(final_report)
 
@@ -364,8 +364,8 @@ class Fuzzer:
         # 3. 构建 monitor stats（使用常量定义的字段）
         monitor_stats = {}
         for field in CHECKPOINT_MONITOR_STATS_FIELDS:
-            assert field in self.monitor.stats, f"Missing monitor stats field: {field}"
-            monitor_stats[field] = self.monitor.stats[field]
+            assert hasattr(self.monitor.stats, field), f"Missing monitor stats field: {field}"
+            monitor_stats[field] = getattr(self.monitor.stats, field)
 
         # 4. 构建 monitor bitmaps（使用常量定义的字段）
         monitor_bitmaps = {}
@@ -502,7 +502,7 @@ class Fuzzer:
         # 使用常量定义的字段恢复 stats
         for field in CHECKPOINT_MONITOR_STATS_FIELDS:
             if field in stats:
-                self.monitor.stats[field] = stats[field]
+                setattr(self.monitor.stats, field, stats[field])
             else:
                 print(f"[!] Warning: Missing {field} in checkpoint, using default")
 
@@ -525,7 +525,7 @@ class Fuzzer:
             assert self.monitor.virgin_bits is not None, "virgin_bits is required for coverage-guided fuzzing"
 
             # 重新计算覆盖率（已触发的位）
-            self.monitor.stats['total_coverage_bits'] = sum(
+            self.monitor.stats.total_coverage_bits = sum(
                 (0xFF ^ b).bit_count() for b in self.monitor.virgin_bits
             )
 
@@ -562,7 +562,7 @@ class Fuzzer:
             else:
                 heapq.heappush(self.scheduler.seeds, seed)
 
-        print(f"[+] Checkpoint loaded from {checkpoint_path} | seeds: {len(self.scheduler.seeds)} | execs: {self.monitor.stats['total_execs']}")
+        print(f"[+] Checkpoint loaded from {checkpoint_path} | seeds: {len(self.scheduler.seeds)} | execs: {self.monitor.stats.total_execs}")
         self.resume_flag = True
 
 
