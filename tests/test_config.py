@@ -41,6 +41,9 @@ class TestConfigSystem(unittest.TestCase):
         """测试 CONFIG 值的类型与 SCHEMA 定义一致"""
         for key, value in CONFIG.items():
             meta = CONFIG_SCHEMA[key]
+            # 允许必需参数在默认配置中为 None
+            if value is None and key in {'target', 'args', 'seeds', 'output'}:
+                continue
             self.assertIsInstance(value, meta.type,
                                 f"Config '{key}' should be {meta.type.__name__}, "
                                 f"got {type(value).__name__}")
@@ -133,7 +136,10 @@ class TestConfigValidation(unittest.TestCase):
         for key, meta in CONFIG_SCHEMA.items():
             try:
                 # 测试当前默认值
-                result = meta.validator(CONFIG[key])
+                value = CONFIG[key]
+                if value is None and key in {'target', 'args', 'seeds', 'output'}:
+                    continue
+                result = meta.validator(value)
                 self.assertTrue(result, f"Validator for {key} rejected default value")
             except Exception as e:
                 self.fail(f"Validator for {key} raised exception: {e}")

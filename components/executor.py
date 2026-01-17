@@ -17,9 +17,12 @@ import os
 import signal
 import resource
 import shutil
-from typing import TypedDict, Optional
+from typing import TypedDict, Optional, Any
 from config import CONFIG
 from utils import AFLSHM
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # ========== 返回结果类型定义 ==========
@@ -60,13 +63,16 @@ class TestExecutor:
 
         # 沙箱配置（使用 bubblewrap）
         self.use_sandbox = CONFIG.get('use_sandbox', False)
-        self.bwrap_path = shutil.which('bwrap')
-        if self.use_sandbox:
+        if not self.use_sandbox:
+            self.bwrap_path = None
+        else:
+            self.bwrap_path = shutil.which('bwrap')
             if not self.bwrap_path:
-                print("[Executor] Warning: 'use_sandbox' enabled but 'bwrap' not found. Sandbox disabled.")
-                self.use_sandbox = False
-            else:
-                print(f"[Executor] Sandbox enabled: {self.bwrap_path}")
+                raise RuntimeError(
+                    "[Executor] ERROR: --use-sandbox enabled but 'bwrap' not found. "
+                    "Please install bubblewrap or disable sandbox mode."
+                )
+            logger.info(f"Sandbox enabled: {self.bwrap_path}")
 
         # 使用 /tmp 作为临时目录
         self.temp_dir = tempfile.mkdtemp(prefix='fuzz_', dir='/tmp')
@@ -77,33 +83,92 @@ class TestExecutor:
         if use_coverage:
             bitmap_size = CONFIG.get('bitmap_size', 65536)
             self.shm = AFLSHM(bitmap_size=bitmap_size)
-            print(f"[Executor] Coverage enabled, SHM ID: {self.shm.get_shm_id()}")
+            logger.info(f"Coverage enabled, SHM ID: {self.shm.get_shm_id()}")
 
         # 验证目标程序存在
         if not os.path.exists(target_path):
             raise FileNotFoundError(f"Target not found: {target_path}")
 
-        print(f"[Executor] Initialized for {target_path}")
-        print(f"[Executor] Temp dir: {self.temp_dir}")
+        logger.info(f"Initialized for {target_path}")
+        logger.debug(f"Temp dir: {self.temp_dir}")
 
     def execute(self, input_data: bytes) -> ExecutionResult:
         """
         执行目标程序
 
+        该方法通过子进程执行目标程序，收集其执行结果和覆盖率信息。
+        支持文件输入（@@）和标准输入两种模式，可选启用沙箱隔离。
+
+        工作流程：
+            1. 清空共享内存中的覆盖率 bitmap
+            2. 将输入数据写入临时文件
+            3. 构建执行命令（替换 @@ 或使用 stdin）
+            4. 配置环境变量（AFL_SHM_ID, AFL_NO_FORKSRV）
+            5. 启动子进程（可选沙箱隔离）
+            6. 等待执行完成或超时
+            7. 收集覆盖率和错误信息
+
         Args:
-            input_data: 输入数据（字节）
+            input_data: 输入测试数据（字节串）
 
         Returns:
-            ExecutionResult 类型的字典（包含 return_code, exec_time, crashed, timeout, stderr, coverage）
+            ExecutionResult: 包含以下字段的字典：
+                - return_code (int): 进程返回码，崩溃时为负信号值
+                - exec_time (float): 执行时间（秒）
+                - crashed (bool): 是否崩溃（非零返回码或信号终止）
+                - timeout (bool): 是否超时
+                - stderr (bytes): 标准错误输出（截断到 stderr_max_len）
+                - coverage (Optional[bytes]): 覆盖率 bitmap（如启用）
+
+        Raises:
+            不抛出异常，所有错误都封装在返回的 ExecutionResult 中
+
+        Example:
+            >>> executor = TestExecutor("/bin/cat", "cat @@", timeout=1.0)
+            >>> result = executor.execute(b"Hello, World!")
+            >>> print(result['return_code'])
+            0
+            >>> print(result['crashed'])
+            False
+
+        Note:
+            - 沙箱模式需要 bubblewrap 工具（apt install bubblewrap）
+            - 覆盖率收集需要目标程序使用 AFL++ 编译器插桩
+            - 共享内存限制为 64KB (CONFIG['bitmap_size'])
         """
-        # 清空 SHM bitmap
+        # 1. 清空 SHM bitmap
+        self._clear_shm_bitmap()
+
+        # 2. 写入输入文件
+        write_result = self._write_input_file(input_data)
+        if write_result is not None:
+            return write_result  # 写入失败，返回错误
+
+        # 3. 准备命令和环境
+        cmd, popen_args, popen_stdin, env = self._prepare_execution_context()
+
+        # 4. 执行目标程序
+        return self._execute_target(cmd, env, popen_args, popen_stdin)
+
+    def _clear_shm_bitmap(self) -> None:
+        """清空共享内存中的覆盖率 bitmap"""
         if self.shm:
             self.shm.clear()
 
-        # 写入输入文件
+    def _write_input_file(self, input_data: bytes) -> Optional[ExecutionResult]:
+        """
+        写入输入数据到临时文件
+
+        Args:
+            input_data: 输入数据
+
+        Returns:
+            如果写入失败，返回错误的 ExecutionResult；否则返回 None
+        """
         try:
             with open(self.input_file, 'wb') as f:
                 f.write(input_data)
+            return None  # 写入成功
         except Exception as e:
             return ExecutionResult(
                 return_code=-1,
@@ -114,47 +179,29 @@ class TestExecutor:
                 coverage=None
             )
 
-        # 替换命令中的 @@ 为输入文件路径
-        if '@@' in self.target_args:
-            # 如果是沙箱模式，这里已经是正确的文件名（指向 self.temp_dir 中的 input），
-            # 但在 shell=True 的情况下，我们需要传递完整的路径（或者我们调整 cwd）
-            # 当前 execute 已经在 cwd=self.temp_dir 下运行，所以相对路径 'input' 也可以
-            # 但为了安全，subprocess 使用绝对路径总是更好
-            cmd = self.target_args.replace('@@', self.input_file)
-        else:
-            # 如果没有 @@，则通过 stdin 传递输入
-            # 注意：沙箱模式下，< self.input_file 是由宿主机 shell 处理还是沙箱内部？
-            # 如果 shell=True, 且 cmd 被 wrap 成了 bwrap ... bash -c 'target < input' ?
-            # 最简单的方式是让 bwrap 直接执行 target，输入重定向由 python 处理
-            # 但我们的 cmd 可能是 "target arg1 arg2 ..."
-            # 如果通过 stdin，我们在 Popen 中传递 stdin 文件句柄即可
-            cmd = f"{self.target_args} < {self.input_file}"
+    def _prepare_execution_context(self) -> tuple[str | list[str], dict, Optional[Any], dict]:
+        """
+        准备执行上下文（命令、参数、环境变量）
 
+        Returns:
+            (cmd, popen_args, popen_stdin, env) 四元组
+        """
         # 准备环境变量
         env = os.environ.copy()
         if self.shm:
             env['__AFL_SHM_ID'] = str(self.shm.get_shm_id())
-            # 关键：禁用 Forkserver，强制直接执行并写入 SHM
             env['AFL_NO_FORKSRV'] = '1'
-
-        # --- 构建执行命令（支持沙箱）---
-        # 此时 cmd 是一个字符串（因 shell=True）
-        # 如果使用 bwrap，我们需要把 cmd 拆分或者让 bwrap 启动一个 shell
 
         popen_args = {}
         popen_stdin = None
 
         if not self.use_sandbox:
             # 非沙箱模式
-            # 但为了统一处理 redirect，如果 input_from_stdin，最好也用 Popen stdin
-             # 替换命令中的 @@ 为输入文件路径
             if '@@' in self.target_args:
                 cmd = self.target_args.replace('@@', self.input_file)
                 popen_stdin = None
             else:
-                # 标准输入模式：
-                # 原始代码：cmd = f"{self.target_args} < {self.input_file}"
-                # 新逻辑：直接传递 stdin 句柄
+                # 标准输入模式：直接传递 stdin 句柄
                 cmd = self.target_args
                 popen_stdin = open(self.input_file, 'rb')
 
@@ -162,55 +209,55 @@ class TestExecutor:
             popen_args['stdin'] = popen_stdin
 
         else:
-            # 构造 bwrap 命令
-            # --share-net : 允许网络（某些目标需要吗？这里默认允许，否则加 --unshare-net）
-            # 由于 cmd 可能是 "target -a input"，我们需要让 bwrap 执行它
-            # 不使用 shell=True，而是显式构造 ARGV
-            # 但这里原始代码用的是 shell=True 用于处理 < 重定向
-
+            # 沙箱模式：使用 bubblewrap
             sandbox_cmd = [
                 self.bwrap_path,
-                '--ro-bind', '/', '/',      # --ro-bind / / : 根目录只读
-                '--dev', '/dev',            # 必要设备文件
-                '--proc', '/proc',          # 必要设备文件
-                '--tmpfs', '/tmp',          # 确保 /tmp 可写，避免目标调用 os.tmpname 等失败
-                '--bind', os.path.dirname(self.target_path), os.path.dirname(self.target_path),  # 绑定目标所在目录
-                '--bind', self.temp_dir, self.temp_dir, # 允许读写临时目录（包含 input/output）
-                '--unshare-pid',            # 隔离 PID 命名空间，确保清理所有子进程
+                '--ro-bind', '/', '/',
+                '--dev', '/dev',
+                '--proc', '/proc',
+                '--tmpfs', '/tmp',
+                '--bind', os.path.dirname(self.target_path), os.path.dirname(self.target_path),
+                '--bind', self.temp_dir, self.temp_dir,
+                '--unshare-pid',
                 '--die-with-parent',
                 '--new-session'
             ]
 
-            # 如果目标需要写入其他位置（如 /dev/null），可能需要更多 bind
-            # 这里是基本配置
-
-            # 处理 Shell 命令的复杂性：
-            # 如果 cmd 包含 "<" 重定向，直接用 Popen(stdin=...) 更好，而不是 shell 重定向
-            # 我们重新解析 cmd 逻辑
-
             real_cmd_str = self.target_args.replace('@@', self.input_file)
             input_from_stdin = '@@' not in self.target_args
 
-            # 使用 sh -c 来执行原命令，保持兼容性
-            # bwrap ... -- sh -c "target args..."
             full_cmd = sandbox_cmd + ['--', '/bin/sh', '-c', real_cmd_str]
 
             if input_from_stdin:
-                # 在 python 层打开 input 文件作为 stdin
                 popen_stdin = open(self.input_file, 'rb')
-                # 此时 cmd 字符串里不需要 < ...
-                # 上面的 real_cmd_str 已经只包含 args
-                # 但旧代码是 cmd = f"{...} < {...}"\
                 real_cmd_str = self.target_args
                 full_cmd = sandbox_cmd + ['--', '/bin/sh', '-c', real_cmd_str]
 
-            # 更新为列表形式（shell=False）
             cmd = full_cmd
             popen_args['shell'] = False
             popen_args['stdin'] = popen_stdin
 
+        return cmd, popen_args, popen_stdin, env
 
-        # 准备内存限制函数
+    def _execute_target(
+        self,
+        cmd: str | list[str],
+        env: dict,
+        popen_args: dict,
+        popen_stdin: Optional[Any]
+    ) -> ExecutionResult:
+        """
+        执行目标程序并收集结果
+
+        Args:
+            cmd: 执行命令
+            env: 环境变量
+            popen_args: Popen 参数字典
+            popen_stdin: 标准输入文件句柄
+
+        Returns:
+            ExecutionResult 字典
+        """
         def set_limits():
             # 设置内存限制（目前仅在非沙箱模式下启用，避免限制 bwrap 自身导致行为偏差）
             if not self.use_sandbox and hasattr(resource, 'RLIMIT_AS'):
@@ -368,7 +415,7 @@ class TestExecutor:
                 self.shm.cleanup()
                 self.shm = None
         except Exception as e:
-            print(f"[Executor] Cleanup warning: {e}")
+            logger.warning(f"Cleanup warning: {e}")
 
     def __del__(self):
         """析构时自动清理"""

@@ -161,10 +161,12 @@ class TestExecutor:
 说明：`ExecutionResult` 在实现中使用 `TypedDict` 描述字段结构；运行时依然是普通 `dict`，但字段集合由类型定义作为单一事实来源，避免“字段列表/校验函数/访问方”多处手工同步。
 
 **实现要点**：
+- execute 由多个私有步骤组成：清空 bitmap、写入输入、准备执行上下文、执行并收集结果
 - 支持 `@@` 文件参数和 stdin 两种输入方式
 - 通过 `__AFL_SHM_ID` 向目标进程传递共享内存 ID
 - 使用超时限制避免 hang，并在返回码/信号上做崩溃判定（含 ASan exitcode）
 - 可选使用 bubblewrap (`bwrap`) 沙箱隔离运行（通过 `config.py` 的 `use_sandbox` 开关控制；若缺失 `bwrap` 则自动回退）
+- 统一日志输出使用 `logger.py` 提供的 logger
 
 #### 组件2：执行监控器 (ExecutionMonitor)
 
@@ -186,6 +188,7 @@ class ExecutionMonitor:
 **实现要点**：
 - 覆盖率用 virgin_bits bitmap 维护，参考 AFL++ 的 has_new_bits 判断"新覆盖"
 - 崩溃/超时去重采用 AFL++ 风格的 virgin_crash/virgin_tmout bitmap
+- 覆盖率位数统计通过 `_get_coverage_bits()` 做缓存，并附带 LRU 清理逻辑
 
 #### 组件3：变异器 (Mutator)
 
@@ -457,5 +460,3 @@ python3 -m unittest discover -s tests -v
 ### 7.3 学习收获
 
 本项目的重点收获是把“覆盖率反馈 + 调度 + 变异 + 执行 + 评估”的完整闭环跑通，并把工程取舍（如禁用 forkserver）写清楚。
-
----

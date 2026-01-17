@@ -25,6 +25,64 @@ class ConfigMeta(NamedTuple):
 
 # 配置项 Schema：定义所有配置项的元数据
 CONFIG_SCHEMA: dict[str, ConfigMeta] = {
+    # 核心路径参数（命令行必需，但可通过 config 提供默认值）
+    'target': ConfigMeta(
+        type=str,
+        validator=lambda x: isinstance(x, str) and len(x) > 0,
+        description='目标程序路径',
+        cli_name='--target',
+        cli_help='Target program path'
+    ),
+    'args': ConfigMeta(
+        type=str,
+        validator=lambda x: isinstance(x, str),
+        description='目标程序参数',
+        cli_name='--args',
+        cli_help='Target program arguments (use @@ for input file)'
+    ),
+    'seeds': ConfigMeta(
+        type=str,
+        validator=lambda x: isinstance(x, str) and len(x) > 0,
+        description='种子文件目录',
+        cli_name='--seeds',
+        cli_help='Seed directory'
+    ),
+    'output': ConfigMeta(
+        type=str,
+        validator=lambda x: isinstance(x, str) and len(x) > 0,
+        description='输出目录',
+        cli_name='--output',
+        cli_help='Output directory'
+    ),
+    'target_id': ConfigMeta(
+        type=str,
+        validator=lambda x: isinstance(x, str),
+        description='目标程序标识符',
+        cli_name='--target-id',
+        cli_help='Target ID for naming'
+    ),
+    'checkpoint_path': ConfigMeta(
+        type=str,
+        validator=lambda x: isinstance(x, str),
+        description='检查点保存目录或文件路径',
+        cli_name='--checkpoint-path',
+        cli_help='Directory to save checkpoints or path to checkpoint file'
+    ),
+    'resume_from': ConfigMeta(
+        type=str,
+        validator=lambda x: isinstance(x, str),
+        description='从检查点恢复的路径',
+        cli_name='--resume-from',
+        cli_help='Path to checkpoint.json to resume from'
+    ),
+    'duration': ConfigMeta(
+        type=int,
+        validator=lambda x: x > 0,
+        description='模糊测试持续时间（秒）',
+        cli_name='--duration',
+        cli_help='Fuzzing duration (seconds)'
+    ),
+
     # 执行控制
     'timeout': ConfigMeta(
         type=float,
@@ -123,6 +181,17 @@ CONFIG_SCHEMA: dict[str, ConfigMeta] = {
 
 # ========== Fuzzer 核心配置 ==========
 CONFIG = {
+    # --- 核心参数 ---
+    'target': None,                  # 目标程序路径
+    'args': None,                    # 目标程序参数
+    'seeds': None,                   # 种子文件目录
+    'output': None,                  # 输出目录
+    'target_id': 'unknown',          # 目标 ID
+    'duration': 3600,                # 默认运行 1 小时
+
+    'checkpoint_path': None,         # 检查点目录或文件路径（可通过 config 或 CLI 设置）
+    'resume_from': None,             # 从指定检查点恢复的路径（可通过 config 或 CLI 设置）
+
     # --- 执行控制 ---
     'timeout': 1.0,                  # 单次执行超时（秒）
     'mem_limit': 256,                # 内存限制（MB）
@@ -165,6 +234,10 @@ def validate_config(config: dict[str, Any]) -> list[str]:
             continue
 
         meta = CONFIG_SCHEMA[key]
+
+        # 跳过允许为 None 的核心参数（target, args, seeds, output, checkpoint_path, resume_from）
+        if value is None and key in ('target', 'args', 'seeds', 'output', 'checkpoint_path', 'resume_from'):
+            continue
 
         # 类型检查
         if not isinstance(value, meta.type):

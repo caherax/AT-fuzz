@@ -4,6 +4,42 @@
 
 ---
 
+## ⚡ 快速使用
+
+```bash
+# 1. 使用 AFL++ 编译目标程序
+afl-cc -o target target.c
+
+# 2. 准备种子
+mkdir seeds && echo "test" > seeds/input.txt
+
+# 3. 运行模糊测试（1小时）
+python fuzzer.py \
+    --target ./target \
+    --args "@@" \
+    --seeds ./seeds \
+    --output ./output \
+    --duration 3600
+
+# 4. 查看结果
+cat output/stats.json
+ls output/crashes/
+ls output/plot_*.png
+```
+
+**恢复检查点**：
+```bash
+python fuzzer.py \
+    --target ./target \
+    --args "@@" \
+    --seeds ./seeds \
+    --output ./output \
+    --duration 7200 \
+    --resume-from output/checkpoints/checkpoint.json
+```
+
+---
+
 ## 📋 功能特性
 
 - **覆盖率引导**：通过 System V Shared Memory 与 AFL++ 插装程序通信，实时获取边覆盖率。

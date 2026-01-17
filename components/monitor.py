@@ -23,10 +23,11 @@ import json
 import hashlib
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Optional
 from dataclasses import dataclass, asdict, fields
 
 from config import CONFIG
+from .executor import ExecutionResult
 
 
 # ========== 数据结构定义 ==========
@@ -114,6 +115,9 @@ class ExecutionMonitor:
         self._crash_hashes: set[int] = set()
         self._hang_hashes: set[int] = set()
 
+        # 覆盖率计算缓存（性能优化）
+        self._coverage_cache: dict[int, int] = {}
+
         # 统计数据（使用 dataclass）
         self.stats = MonitorStats(start_time=datetime.now().isoformat())
 
@@ -124,7 +128,7 @@ class ExecutionMonitor:
         mode = "coverage-guided" if use_coverage else "blind"
         print(f"[Monitor] Initialized ({mode}). Output dir: {self.output_dir}")
 
-    def process_execution(self, input_data: bytes, exec_result: Dict) -> bool:
+    def process_execution(self, input_data: bytes, exec_result: ExecutionResult) -> bool:
         """
         处理一次执行结果
 
@@ -150,8 +154,9 @@ class ExecutionMonitor:
                 is_interesting = True
 
         # 检测新覆盖率（仅正常执行）
-        elif self.use_coverage and exec_result.get('coverage'):
-            if self._has_new_bits(exec_result['coverage'], self.virgin_bits):
+        elif self.use_coverage:
+            coverage = exec_result.get('coverage')
+            if coverage and self._has_new_bits(coverage, self.virgin_bits):
                 self._save_interesting(input_data, 'new_coverage')
                 is_interesting = True
 
@@ -204,7 +209,41 @@ class ExecutionMonitor:
         digest = hashlib.blake2s(data, digest_size=8).digest()
         return int.from_bytes(digest, byteorder='big')
 
-    def _handle_crash(self, input_data: bytes, exec_result: Dict) -> bool:
+    def _get_coverage_bits(self, coverage: Optional[bytes]) -> int:
+        """
+        获取覆盖率位数（带缓存）
+
+        Args:
+            coverage: 覆盖率 bitmap
+
+        Returns:
+            覆盖率位数
+        """
+        if not coverage:
+            return 0
+
+        # 使用哈希作为缓存键
+        cache_key = hash(coverage)
+        if cache_key in self._coverage_cache:
+            return self._coverage_cache[cache_key]
+
+        # 计算覆盖率
+        from utils import count_coverage_bits
+        bits = count_coverage_bits(coverage)
+
+        # 缓存结果
+        self._coverage_cache[cache_key] = bits
+
+        # 限制缓存大小（防止内存溢出）
+        if len(self._coverage_cache) > 10000:
+            # 清空最旧的一半
+            keys_to_remove = list(self._coverage_cache.keys())[:5000]
+            for key in keys_to_remove:
+                del self._coverage_cache[key]
+
+        return bits
+
+    def _handle_crash(self, input_data: bytes, exec_result: ExecutionResult) -> bool:
         """
         处理崩溃，参考 AFL++ save_if_interesting (FSRV_RUN_CRASH 分支)
 
@@ -215,8 +254,12 @@ class ExecutionMonitor:
 
         coverage = exec_result.get('coverage')
         stderr = exec_result.get('stderr', b'')
-        if isinstance(stderr, str):
+        if isinstance(stderr, memoryview):
+            stderr = bytes(stderr)
+        elif isinstance(stderr, str):
             stderr = stderr.encode('utf-8', errors='ignore')
+        elif not isinstance(stderr, bytes):
+            stderr = b''
 
         # AFL++ 策略：使用 simplify_trace + virgin_crash 去重
         if self.virgin_crash is not None and coverage:
@@ -256,7 +299,7 @@ class ExecutionMonitor:
         print(f"[Monitor] New CRASH found! ({self.stats.saved_crashes} unique)")
         return True
 
-    def _handle_hang(self, input_data: bytes, exec_result: Dict) -> bool:
+    def _handle_hang(self, input_data: bytes, exec_result: ExecutionResult) -> bool:
         """
         处理超时（hang），参考 AFL++ save_if_interesting (FSRV_RUN_TMOUT 分支)
 
@@ -337,20 +380,24 @@ if __name__ == '__main__':
         monitor = ExecutionMonitor(temp_dir)
 
         # 模拟正常执行
-        normal_result = {
+        normal_result: ExecutionResult = {
             'return_code': 0,
             'exec_time': 0.01,
             'crashed': False,
-            'timeout': False
+            'timeout': False,
+            'stderr': b'',
+            'coverage': None,
         }
         monitor.process_execution(b'normal input', normal_result)
 
         # 模拟崩溃
-        crash_result = {
+        crash_result: ExecutionResult = {
             'return_code': -11,
             'exec_time': 0.02,
             'crashed': True,
-            'stderr': b'Segmentation fault'
+            'timeout': False,
+            'stderr': b'Segmentation fault',
+            'coverage': None,
         }
         monitor.process_execution(b'crash input', crash_result)
 

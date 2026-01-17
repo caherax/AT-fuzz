@@ -28,6 +28,7 @@ report/
 
 # local
 experiments/
+.coverage
 
 # AFL / fuzzing runtime
 crashes/

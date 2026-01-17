@@ -66,7 +66,7 @@ class SeedScheduler:
         self.fifo_index = 0  # FIFO 模式下的索引
         self.total_memory = 0  # 种子库当前内存使用（字节）
 
-    def add_seed(self, seed_data: bytes, coverage_bits: int = 0, exec_time: float = 0.0):
+    def add_seed(self, seed_data: bytes, coverage_bits: int = 0, exec_time: float = 0.0) -> None:
         """
         添加种子到队列
 
