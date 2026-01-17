@@ -144,25 +144,39 @@ class TestExecutor:
         popen_args = {}
         popen_stdin = None
 
-        if self.use_sandbox:
-            # 构造 bwrap 命令
-            # --ro-bind / / : 根目录只读
-            # --dev /dev, --proc /proc : 必要设备文件
-            # --bind temp_dir temp_dir : 允许读写临时目录（包含 input/output）
-            # --share-net : 允许网络（某些目标需要吗？这里默认允许，否则加 --unshare-net）
-            # 注意：不使用 --unshare-ipc，以便 AFL SHM 工作
+        if not self.use_sandbox:
+            # 非沙箱模式
+            # 但为了统一处理 redirect，如果 input_from_stdin，最好也用 Popen stdin
+             # 替换命令中的 @@ 为输入文件路径
+            if '@@' in self.target_args:
+                cmd = self.target_args.replace('@@', self.input_file)
+                popen_stdin = None
+            else:
+                # 标准输入模式：
+                # 原始代码：cmd = f"{self.target_args} < {self.input_file}"
+                # 新逻辑：直接传递 stdin 句柄
+                cmd = self.target_args
+                popen_stdin = open(self.input_file, 'rb')
 
+            popen_args['shell'] = True
+            popen_args['stdin'] = popen_stdin
+
+        else:
+            # 构造 bwrap 命令
+            # --share-net : 允许网络（某些目标需要吗？这里默认允许，否则加 --unshare-net）
             # 由于 cmd 可能是 "target -a input"，我们需要让 bwrap 执行它
             # 不使用 shell=True，而是显式构造 ARGV
             # 但这里原始代码用的是 shell=True 用于处理 < 重定向
 
             sandbox_cmd = [
                 self.bwrap_path,
-                '--ro-bind', '/', '/',
-                '--dev', '/dev',
-                '--proc', '/proc',
-                '--bind', self.temp_dir, self.temp_dir,
-                '--unshare-pid',  # 隔离 PID 命名空间，确保清理所有子进程
+                '--ro-bind', '/', '/',      # --ro-bind / / : 根目录只读
+                '--dev', '/dev',            # 必要设备文件
+                '--proc', '/proc',          # 必要设备文件
+                '--tmpfs', '/tmp',          # 确保 /tmp 可写，避免目标调用 os.tmpname 等失败
+                '--bind', os.path.dirname(self.target_path), os.path.dirname(self.target_path),  # 绑定目标所在目录
+                '--bind', self.temp_dir, self.temp_dir, # 允许读写临时目录（包含 input/output）
+                '--unshare-pid',            # 隔离 PID 命名空间，确保清理所有子进程
                 '--die-with-parent',
                 '--new-session'
             ]
@@ -186,10 +200,8 @@ class TestExecutor:
                 popen_stdin = open(self.input_file, 'rb')
                 # 此时 cmd 字符串里不需要 < ...
                 # 上面的 real_cmd_str 已经只包含 args
-                # 但旧代码是 cmd = f"{...} < {...}"
-                # 修正：如果 input_from_stdin，real_cmd_str 应该是原始 target_args
+                # 但旧代码是 cmd = f"{...} < {...}"\
                 real_cmd_str = self.target_args
-                # full_cmd 依然是 sh -c "target_args"
                 full_cmd = sandbox_cmd + ['--', '/bin/sh', '-c', real_cmd_str]
 
             # 更新为列表形式（shell=False）
@@ -197,28 +209,11 @@ class TestExecutor:
             popen_args['shell'] = False
             popen_args['stdin'] = popen_stdin
 
-        else:
-            # 非沙箱模式，保持原逻辑 (shell=True)
-            # 但为了统一处理 redirect，如果 input_from_stdin，最好也用 Popen stdin
-             # 替换命令中的 @@ 为输入文件路径
-            if '@@' in self.target_args:
-                cmd = self.target_args.replace('@@', self.input_file)
-                popen_stdin = None
-            else:
-                # 标准输入模式：
-                # 原始代码：cmd = f"{self.target_args} < {self.input_file}"
-                # 新逻辑：直接传递 stdin 句柄
-                cmd = self.target_args
-                popen_stdin = open(self.input_file, 'rb')
-
-            popen_args['shell'] = True
-            popen_args['stdin'] = popen_stdin
-
 
         # 准备内存限制函数
         def set_limits():
-            # 设置内存限制（仅限 Linux/Unix）
-            if hasattr(resource, 'RLIMIT_AS'):
+            # 设置内存限制（目前仅在非沙箱模式下启用，避免限制 bwrap 自身导致行为偏差）
+            if not self.use_sandbox and hasattr(resource, 'RLIMIT_AS'):
                 mem_bytes = CONFIG.get('mem_limit', 256) * 1024 * 1024  # MB -> bytes
                 try:
                     resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
@@ -254,9 +249,9 @@ class TestExecutor:
 
             proc = subprocess.Popen(
                 cmd,
-                stdout=stdout_f,  # 重定向到文件
-                stderr=stderr_f,  # 重定向到文件
-                cwd=self.temp_dir, # 关键：隔离工作目录，防止污染项目根目录
+                stdout=stdout_f,    # 重定向到文件
+                stderr=stderr_f,    # 重定向到文件
+                cwd=self.temp_dir,  # 关键：隔离工作目录，防止污染项目根目录
                 env=env,
                 preexec_fn=set_limits,
                 **popen_args
