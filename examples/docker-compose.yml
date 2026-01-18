@@ -1,20 +1,10 @@
 
 services:
-  # 交互式开发容器
-  fuzzer:
-    build: .
-    image: at-fuzz:ubuntu2204
-    container_name: at-fuzz-dev
-    volumes:
-      - ..:/fuzzer
-    working_dir: /fuzzer
-    stdin_open: true
-    tty: true
-    privileged: true  # 允许 bwrap 运行
-    command: /bin/bash
-
   # T01: cxxfilt (binutils)
   test-t01:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t01-cxxfilt
     volumes:
@@ -25,6 +15,9 @@ services:
 
   # T02: readelf (binutils)
   test-t02:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t02-readelf
     volumes:
@@ -35,6 +28,9 @@ services:
 
   # T03: nm-new (binutils)
   test-t03:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t03-nm
     volumes:
@@ -45,6 +41,9 @@ services:
 
   # T04: objdump (binutils)
   test-t04:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t04-objdump
     volumes:
@@ -55,6 +54,9 @@ services:
 
   # T05: djpeg (libjpeg)
   test-t05:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t05-djpeg
     volumes:
@@ -65,6 +67,9 @@ services:
 
   # T06: readpng (libpng)
   test-t06:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t06-readpng
     volumes:
@@ -74,6 +79,9 @@ services:
 
   # T07: xmllint (libxml2)
   test-t07:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t07-xmllint
     volumes:
@@ -84,6 +92,9 @@ services:
 
   # T08: lua
   test-t08:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t08-lua
     privileged: true  # 允许 bwrap 运行
@@ -95,6 +106,9 @@ services:
 
   # T09: mjs
   test-t09:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t09-mjs
     privileged: true  # 允许 bwrap 运行
@@ -106,6 +120,9 @@ services:
 
   # T10: tcpdump
   test-t10:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ubuntu2204
     image: at-fuzz:ubuntu2204
     container_name: fuzz-t10-tcpdump
     volumes:

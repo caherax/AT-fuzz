@@ -25,6 +25,11 @@ RUN /opt/venv/bin/pip install --upgrade pip setuptools wheel && \
 # Set working directory
 WORKDIR /fuzzer
 
+# Copy source code
+COPY src/ /fuzzer/src/
+COPY README.md /fuzzer/
+COPY docs/ /fuzzer/docs/
+
 # Create output directory
 RUN mkdir -p output
 

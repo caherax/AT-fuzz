@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 import tempfile
-from components.executor import TestExecutor
+from src.components.executor import TestExecutor
 
 
 class TestExecutorBasic(unittest.TestCase):
@@ -175,7 +175,7 @@ class TestExecutorSandbox(unittest.TestCase):
 
     def test_sandbox_fallback(self):
         """测试沙箱不可用时的回退"""
-        from config import CONFIG
+        from src.config import CONFIG
         original_setting = CONFIG['use_sandbox']
 
         try:
@@ -195,7 +195,7 @@ class TestExecutorSandbox(unittest.TestCase):
         if not self.bwrap_available:
             self.skipTest("bwrap not available")
 
-        from config import CONFIG
+        from src.config import CONFIG
         original_setting = CONFIG.get('use_sandbox', False)
 
         try:
@@ -259,7 +259,7 @@ class TestExecutorResultFields(unittest.TestCase):
 
     def test_result_contains_all_fields(self):
         """测试结果包含所有必需字段"""
-        from components.executor import ExecutionResult
+        from src.components.executor import ExecutionResult
 
         executor = TestExecutor('/bin/cat', 'cat @@', timeout=5)
         result = executor.execute(b'test')

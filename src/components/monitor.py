@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass, asdict, fields
 
-from config import CONFIG
+from ..config import CONFIG
 from .executor import ExecutionResult
 
 
@@ -228,7 +228,7 @@ class ExecutionMonitor:
             return self._coverage_cache[cache_key]
 
         # 计算覆盖率
-        from utils import count_coverage_bits
+        from ..utils import count_coverage_bits
         bits = count_coverage_bits(coverage)
 
         # 缓存结果

@@ -13,8 +13,8 @@ import signal
 from pathlib import Path
 from unittest.mock import MagicMock, patch, ANY
 
-from fuzzer import Fuzzer
-from config import CONFIG, apply_advanced_defaults
+from src.fuzzer import Fuzzer
+from src.config import CONFIG, apply_advanced_defaults
 
 
 class TestFuzzerBase(unittest.TestCase):

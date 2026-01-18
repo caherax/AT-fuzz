@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
-from utils import (
+from src.utils import (
     count_coverage_bits,
     get_coverage_delta,
     has_new_coverage,

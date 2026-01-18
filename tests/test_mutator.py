@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
-from components.mutator import Mutator
+from src.components.mutator import Mutator
 
 
 class TestMutatorBasic(unittest.TestCase):
@@ -215,7 +215,7 @@ class TestMutatorInterestingValues(unittest.TestCase):
 
     def test_interesting_8_values(self):
         """测试 8 位有趣值"""
-        from components.mutator import INTERESTING_8
+        from src.components.mutator import INTERESTING_8
 
         # 验证包含关键边界值
         self.assertIn(-128, INTERESTING_8)
@@ -225,7 +225,7 @@ class TestMutatorInterestingValues(unittest.TestCase):
 
     def test_interesting_16_values(self):
         """测试 16 位有趣值"""
-        from components.mutator import INTERESTING_16
+        from src.components.mutator import INTERESTING_16
 
         # 验证包含关键边界值
         self.assertIn(-32768, INTERESTING_16)
@@ -235,7 +235,7 @@ class TestMutatorInterestingValues(unittest.TestCase):
 
     def test_interesting_32_values(self):
         """测试 32 位有趣值"""
-        from components.mutator import INTERESTING_32
+        from src.components.mutator import INTERESTING_32
 
         # 验证包含关键边界值
         self.assertIn(-2147483648, INTERESTING_32)

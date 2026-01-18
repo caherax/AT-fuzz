@@ -8,7 +8,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
-from components.scheduler import Seed, SeedScheduler, SEED_FIELDS
+from src.components.scheduler import Seed, SeedScheduler, SEED_FIELDS
 
 
 class TestSeedDataclass(unittest.TestCase):
@@ -130,7 +130,7 @@ class TestSeedSchedulerEnergy(unittest.TestCase):
     def setUp(self):
         """设置测试环境 - 强制使用 energy 策略"""
         # 确保使用 energy 策略
-        from config import CONFIG
+        from src.config import CONFIG
         CONFIG['seed_sort_strategy'] = 'energy'
         self.scheduler = SeedScheduler()
 
@@ -176,13 +176,13 @@ class TestSeedSchedulerFIFO(unittest.TestCase):
 
     def setUp(self):
         """设置测试环境 - 使用 FIFO 策略"""
-        from config import CONFIG
+        from src.config import CONFIG
         CONFIG['seed_sort_strategy'] = 'fifo'
         self.scheduler = SeedScheduler()
 
     def tearDown(self):
         """恢复默认策略"""
-        from config import CONFIG
+        from src.config import CONFIG
         CONFIG['seed_sort_strategy'] = 'energy'
 
     def test_fifo_order(self):
@@ -213,7 +213,7 @@ class TestSeedSchedulerLimits(unittest.TestCase):
 
     def setUp(self):
         """设置测试环境"""
-        from config import CONFIG
+        from src.config import CONFIG
         # 设置较小的限制以便测试
         CONFIG['max_queue_size'] = 10
         CONFIG['max_seeds_memory'] = 1  # 1 MB
@@ -222,7 +222,7 @@ class TestSeedSchedulerLimits(unittest.TestCase):
 
     def tearDown(self):
         """恢复默认设置"""
-        from config import CONFIG
+        from src.config import CONFIG
         CONFIG['max_queue_size'] = 10000
         CONFIG['max_seeds_memory'] = 256
 

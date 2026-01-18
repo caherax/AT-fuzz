@@ -9,10 +9,10 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from components.executor import TestExecutor
-from components.monitor import ExecutionMonitor
-from components.mutator import Mutator
-from utils import count_coverage_bits
+from src.components.executor import TestExecutor
+from src.components.monitor import ExecutionMonitor
+from src.components.mutator import Mutator
+from src.utils import count_coverage_bits
 
 
 class TestCoverageCollection(unittest.TestCase):

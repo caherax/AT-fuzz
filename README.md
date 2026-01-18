@@ -14,7 +14,7 @@ afl-cc -o target target.c
 mkdir seeds && echo "test" > seeds/input.txt
 
 # 3. 运行模糊测试（1小时）
-python fuzzer.py \
+python3 -m src.fuzzer \
     --target ./target \
     --args "@@" \
     --seeds ./seeds \
@@ -29,7 +29,7 @@ ls output/plot_*.png
 
 **恢复检查点**：
 ```bash
-python fuzzer.py \
+python3 -m src.fuzzer \
     --target ./target \
     --args "@@" \
     --seeds ./seeds \
@@ -57,22 +57,22 @@ python fuzzer.py \
 
 系统由六个核心组件构成：
 
-1. **测试执行组件** (`components/executor.py`)
+1. **测试执行组件** (`src/components/executor.py`)
    负责启动子进程，管理环境变量 (`__AFL_SHM_ID`, `AFL_NO_FORKSRV`)，处理超时和崩溃检测。
 
-2. **执行结果监控组件** (`components/monitor.py`)
+2. **执行结果监控组件** (`src/components/monitor.py`)
    解析执行结果，追踪全局覆盖率，保存崩溃样本。
 
-3. **变异组件** (`components/mutator.py`)
+3. **变异组件** (`src/components/mutator.py`)
    提供多种变异算子，支持堆叠变异 (Havoc)。
 
-4. **种子调度组件** (`components/scheduler.py`)
+4. **种子调度组件** (`src/components/scheduler.py`)
    维护种子优先队列（大根堆），根据能量评分选择种子 (O(log n))。
 
-5. **能量调度组件** (`components/scheduler.py`)
+5. **能量调度组件** (`src/components/scheduler.py`)
    根据种子质量（覆盖率、执行时间、执行次数）动态计算能量，参考 AFL++ 的多调度策略。
 
-6. **评估组件** (`components/evaluator.py`)
+6. **评估组件** (`src/components/evaluator.py`)
    记录运行时数据，生成 CSV 报告和 Matplotlib 图表。
 
 ---
@@ -149,7 +149,7 @@ make
 **基本用法**：
 
 ```bash
-python3 fuzzer.py \
+python3 -m src.fuzzer \
     --target /path/to/target_binary \
     --args "target_binary @@" \
     --seeds /path/to/seeds \
@@ -167,13 +167,13 @@ python3 fuzzer.py \
 *   `--checkpoint-path`：检查点保存目录（默认：`<output>/checkpoints`）。
 *   `--resume-from`：从指定的 `checkpoint.json` 恢复运行。
 
-配置项（如 `--timeout` / `--mem-limit` / `--max-seed-size` / `--use-sandbox` 等）与 `config.py` 保持一致，并由配置元数据自动生成命令行参数；完整列表以 `python3 fuzzer.py --help` 为准。
+配置项（如 `--timeout` / `--mem-limit` / `--max-seed-size` / `--use-sandbox` 等）与 `src/config.py` 保持一致，并由配置元数据自动生成命令行参数；完整列表以 `python3 -m src.fuzzer --help` 为准。
 
 **示例：测试一个二进制程序**
 
 ```bash
 # 文件参数模式
-python3 fuzzer.py \
+python3 -m src.fuzzer \
     --target /path/to/your_binary \
     --args "your_binary -a @@" \
     --seeds /path/to/seeds \
@@ -181,7 +181,7 @@ python3 fuzzer.py \
     --duration 600
 
 # 标准输入模式
-python3 fuzzer.py \
+python3 -m src.fuzzer \
     --target /path/to/your_binary \
     --args "your_binary" \
     --seeds /path/to/seeds \
@@ -192,7 +192,7 @@ python3 fuzzer.py \
 你也可以通过命令行覆盖 `config.py` 中的大多数参数，例如：
 
 ```bash
-python3 fuzzer.py \
+python3 -m src.fuzzer \
     --target /path/to/your_binary \
     --args "your_binary -a @@" \
     --seeds /path/to/seeds \
@@ -228,7 +228,7 @@ python3 -m unittest discover -s tests -v
 
 当目标程序不可信或希望隔离文件系统副作用时，可以启用 `bwrap` 沙箱：
 
-- 在 `config.py` 中设置 `use_sandbox=True`。
+- 在 `src/config.py` 中设置 `use_sandbox=True`。
 - 若系统缺少 `bwrap`，执行器会打印 warning 并自动回退为非沙箱运行（不影响基本功能）。
 
 建议：对于脚本类/可能产生子进程或执行外部命令的目标，优先使用命令行开关 `--use-sandbox`。
@@ -247,7 +247,7 @@ AT-Fuzz 支持在长时间运行中“暂停并保存状态”，并在下次从
 
 ```bash
 # 运行并指定检查点目录
-python3 fuzzer.py \
+python3 -m src.fuzzer \
     --target /path/to/your_binary \
     --args "your_binary -a @@" \
     --seeds /path/to/seeds \
@@ -256,7 +256,7 @@ python3 fuzzer.py \
     --checkpoint-path output/test_run/checkpoints
 
 # 从检查点恢复
-python3 fuzzer.py \
+python3 -m src.fuzzer \
     --target /path/to/your_binary \
     --args "your_binary -a @@" \
     --seeds /path/to/seeds \
@@ -292,26 +292,27 @@ output/
 
 ```
 AT-fuzz/
-├── fuzzer.py               # 主程序入口
-├── config.py               # 全局配置
-├── utils.py                # 工具函数 (SHM, Bitmap)
-├── components/             # 核心组件
-│   ├── executor.py         # 测试执行组件
-│   ├── monitor.py          # 执行结果监控组件
-│   ├── mutator.py          # 变异组件
-│   ├── scheduler.py        # 种子调度 + 能量调度组件
-│   └── evaluator.py        # 评估组件
-├── tests/                  # 单元测试
-├── docs/                   # 文档
-│   └── DESIGN.md           # 设计文档
-├── examples/               # 示例与实验资源
-│   ├── sources/            # 测试目标源代码（含 tar.gz）
-│   ├── seeds/              # 各测试目标的种子库
-│   ├── run_target.sh       # 统一的目标编译和运行脚本
-│   └── docker-compose.yml  # 实验用 Docker Compose 配置
-├── Dockerfile              # 容器配置
-├── docker-compose.yml      # Docker Compose 配置
-└── README.md               # 本文件
+├── src/
+│   ├── fuzzer.py               # 主程序入口
+│   ├── config.py               # 全局配置
+│   ├── utils.py                # 工具函数 (SHM, Bitmap)
+│   └── components/             # 核心组件
+│       ├── executor.py         # 测试执行组件
+│       ├── monitor.py          # 执行结果监控组件
+│       ├── mutator.py          # 变异组件
+│       ├── scheduler.py        # 种子调度 + 能量调度组件
+│       └── evaluator.py        # 评估组件
+├── tests/                      # 单元测试
+├── docs/                       # 文档
+│   └── DESIGN.md               # 设计文档
+├── examples/                   # 示例与实验资源
+│   ├── sources/                # 测试目标源代码（含 tar.gz）
+│   ├── seeds/                  # 各测试目标的初始种子库
+│   ├── run_target.sh           # 统一的目标编译和运行脚本
+│   └── docker-compose.yml      # 实验用 Docker Compose 配置
+├── Dockerfile                  # 容器配置
+├── docker-compose.yml          # Docker Compose 配置
+└── README.md                   # 本文件
 ```
 
 ---
@@ -339,7 +340,7 @@ docker-compose up -d fuzzer
 docker-compose exec fuzzer bash
 
 # 在容器内运行测试
-python3 fuzzer.py \
+python3 -m src.fuzzer \
     --target /path/to/target \
     --args "target @@" \
     --seeds /path/to/seeds \
@@ -368,7 +369,7 @@ docker run -it \
 
 ## 🛠️ 高级配置
 
-编辑 `config.py` 可调整（以下为常用项；完整列表以 `python3 fuzzer.py --help` 与 `config.py` 为准）：
+编辑 `config.py` 可调整（以下为常用项；完整列表以 `python3 -m src.fuzzer --help` 与 `config.py` 为准）：
 
 *   **`timeout`**：单次执行超时时间（秒）。
 *   **`mem_limit`**：目标程序内存限制（MB）。

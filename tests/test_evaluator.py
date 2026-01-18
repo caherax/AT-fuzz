@@ -12,7 +12,7 @@ import tempfile
 import csv
 import json
 from pathlib import Path
-from components.evaluator import Evaluator, CSV_COLUMNS
+from src.components.evaluator import Evaluator, CSV_COLUMNS
 
 
 class TestEvaluatorInit(unittest.TestCase):

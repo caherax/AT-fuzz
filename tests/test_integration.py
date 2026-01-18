@@ -9,9 +9,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 import tempfile
-from components.executor import TestExecutor
-from components.mutator import Mutator
-from utils import CoverageTracker
+from src.components.executor import TestExecutor
+from src.components.mutator import Mutator
+from src.utils import CoverageTracker
 
 
 class TestBasicFuzzingLoop(unittest.TestCase):
@@ -137,7 +137,7 @@ class TestSchedulerIntegration(unittest.TestCase):
 
     def setUp(self):
         """设置测试环境"""
-        from components.scheduler import SeedScheduler
+        from src.components.scheduler import SeedScheduler
         self.scheduler = SeedScheduler()
         self.executor = TestExecutor('/bin/cat', 'cat @@', timeout=2)
 
@@ -178,8 +178,8 @@ class TestSchedulerIntegration(unittest.TestCase):
 
     def test_coverage_guided_seed_selection(self):
         """测试基于覆盖率的种子选择"""
-        from components.scheduler import SeedScheduler
-        from config import CONFIG
+        from src.components.scheduler import SeedScheduler
+        from src.config import CONFIG
 
         # 强制使用 energy 策略
         CONFIG['seed_sort_strategy'] = 'energy'
@@ -200,7 +200,7 @@ class TestEvaluatorIntegration(unittest.TestCase):
     def test_evaluator_with_fuzzing_loop(self):
         """测试评估器在模糊测试循环中的使用"""
         import tempfile
-        from components.evaluator import Evaluator
+        from src.components.evaluator import Evaluator
 
         with tempfile.TemporaryDirectory() as tmpdir:
             evaluator = Evaluator(tmpdir)
@@ -250,8 +250,8 @@ class TestFullPipelineIntegration(unittest.TestCase):
     def test_complete_fuzzing_pipeline(self):
         """测试完整的模糊测试管道"""
         import tempfile
-        from components.scheduler import SeedScheduler
-        from components.evaluator import Evaluator
+        from src.components.scheduler import SeedScheduler
+        from src.components.evaluator import Evaluator
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 初始化所有组件

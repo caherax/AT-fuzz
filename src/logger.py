@@ -2,7 +2,7 @@
 统一的日志配置模块
 
 使用方法：
-    from logger import get_logger
+    from .logger import get_logger
     logger = get_logger(__name__)
     logger.info("信息")
     logger.warning("警告")

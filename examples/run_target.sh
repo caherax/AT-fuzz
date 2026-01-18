@@ -60,19 +60,19 @@ build_binutils() {
     echo "构建 binutils（共享构建，供 T01-T04 使用）..."
     mkdir -p "$BUILD_DIR"
     cd "$BUILD_DIR"
-    
+
     # 只在未解压时解压
     if [ ! -d "binutils-2.28" ]; then
         tar -xzf "$EXAMPLES_DIR/sources/binutils-2.28.tar.gz"
     fi
-    
+
     cd binutils-2.28
 
     ./configure --disable-shared --prefix="$INSTALL_DIR"
 
     make -j$(nproc)
     make install
-    
+
     echo "[+] binutils 构建完成，所有工具安装在 $INSTALL_DIR/bin/"
 }
 
@@ -374,7 +374,7 @@ RESUME_FROM=${RESUME_FROM:-}
 
 # 运行模糊测试
 cd "$PROJECT_ROOT"
-CMD=(python3 -u fuzzer.py
+CMD=(python3 -u -m src.fuzzer
     --target "$BINARY"
     --args "$ARGS"
     --seeds "$SEEDS_DIR"

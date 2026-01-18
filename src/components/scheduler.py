@@ -58,7 +58,7 @@ class SeedScheduler:
 
     def __init__(self):
         """初始化调度器"""
-        from config import CONFIG
+        from ..config import CONFIG
         self.strategy = CONFIG.get('seed_sort_strategy', 'energy')
         self.seeds: list[Seed] = []  # Heap (for 'energy') or Queue (for 'fifo')
         self.total_exec_time = 0.0
@@ -75,7 +75,7 @@ class SeedScheduler:
             coverage_bits: 覆盖率位数
             exec_time: 执行时间
         """
-        from config import CONFIG
+        from ..config import CONFIG
 
         seed = Seed(
             data=seed_data,

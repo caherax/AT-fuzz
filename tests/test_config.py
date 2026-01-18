@@ -2,7 +2,7 @@
 测试配置系统的自动化功能
 """
 import unittest
-from config import CONFIG, CONFIG_SCHEMA, validate_config, apply_cli_args_to_config
+from src.config import CONFIG, CONFIG_SCHEMA, validate_config, apply_cli_args_to_config
 
 
 class TestConfigSystem(unittest.TestCase):

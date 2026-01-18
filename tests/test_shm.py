@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from utils import AFLSHM
+from src.utils import AFLSHM
 
 
 class TestSHMBasic(unittest.TestCase):

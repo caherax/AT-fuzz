@@ -13,8 +13,8 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from components.monitor import ExecutionMonitor
-from components.executor import ExecutionResult
+from src.components.monitor import ExecutionMonitor
+from src.components.executor import ExecutionResult
 
 
 class TestMonitorCoverage(unittest.TestCase):

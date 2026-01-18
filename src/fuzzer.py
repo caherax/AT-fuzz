@@ -9,15 +9,15 @@ import time
 import signal
 from pathlib import Path
 
-from config import CONFIG
-from components.executor import TestExecutor
-from components.monitor import ExecutionMonitor
-from components.scheduler import SeedScheduler
-from components.mutator import Mutator
-from components.evaluator import Evaluator
-from checkpoint import CheckpointManager
-from utils import count_coverage_bits
-from logger import get_logger
+from .config import CONFIG
+from .components.executor import TestExecutor
+from .components.monitor import ExecutionMonitor
+from .components.scheduler import SeedScheduler
+from .components.mutator import Mutator
+from .components.evaluator import Evaluator
+from .checkpoint import CheckpointManager
+from .utils import count_coverage_bits
+from .logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -323,7 +323,7 @@ def main():
     """主函数"""
     import argparse
     import sys
-    from config import CONFIG, CONFIG_SCHEMA, apply_cli_args_to_config
+    from .config import CONFIG, CONFIG_SCHEMA, apply_cli_args_to_config
 
     parser = argparse.ArgumentParser(
         description='Fuzzer for mutation-based fuzzing',
@@ -374,11 +374,11 @@ def main():
         sys.exit(1)
 
     # 应用高级默认值（依赖其他配置项的默认值）
-    from config import apply_advanced_defaults
+    from .config import apply_advanced_defaults
     apply_advanced_defaults()
 
     # 验证所有配置项
-    from config import validate_config
+    from .config import validate_config
     config_errors = validate_config(CONFIG)
     if config_errors:
         print("[!] Configuration validation errors:", file=sys.stderr)

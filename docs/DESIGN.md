@@ -143,7 +143,7 @@ AT-Fuzz 采用模块化设计，将模糊测试流程分解为六个核心组件
 
 **职责**：把输入喂给目标程序并拿到一次执行的完整结果（退出码/信号、耗时、stdout/stderr，以及可选的覆盖率 bitmap）。
 
-**主要接口**（对应实现：[components/executor.py](../components/executor.py)）：
+**主要接口**（对应实现：[src/components/executor.py](../src/components/executor.py)）：
 ```python
 class TestExecutor:
    def __init__(
@@ -165,14 +165,14 @@ class TestExecutor:
 - 支持 `@@` 文件参数和 stdin 两种输入方式
 - 通过 `__AFL_SHM_ID` 向目标进程传递共享内存 ID
 - 使用超时限制避免 hang，并在返回码/信号上做崩溃判定（含 ASan exitcode）
-- 可选使用 bubblewrap (`bwrap`) 沙箱隔离运行（通过 `config.py` 的 `use_sandbox` 开关控制；若缺失 `bwrap` 则自动回退）
-- 统一日志输出使用 `logger.py` 提供的 logger
+- 可选使用 bubblewrap (`bwrap`) 沙箱隔离运行（通过 `src/config.py` 的 `use_sandbox` 开关控制；若缺失 `bwrap` 则自动回退）
+- 统一日志输出使用 `src/logger.py` 提供的 logger
 
 #### 组件2：执行监控器 (ExecutionMonitor)
 
 **职责**：处理每次执行的结果：更新全局覆盖率、判断是否产生新路径、保存崩溃样本/新覆盖样本，并累计统计数据。
 
-**主要接口**（对应实现：[components/monitor.py](../components/monitor.py)）：
+**主要接口**（对应实现：[src/components/monitor.py](../src/components/monitor.py)）：
 ```python
 class ExecutionMonitor:
    def __init__(self, output_dir: str, use_coverage: bool = False) -> None: ...
@@ -194,7 +194,7 @@ class ExecutionMonitor:
 
 **职责**：对输入做变异，生成候选测试用例。
 
-**主要接口**（对应实现：[components/mutator.py](../components/mutator.py)）：
+**主要接口**（对应实现：[src/components/mutator.py](../src/components/mutator.py)）：
 ```python
 class Mutator:
    @staticmethod
@@ -228,7 +228,7 @@ class Mutator:
 
 **职责**：管理种子队列，并决定下一次优先 fuzz 哪个种子。
 
-**主要接口**（对应实现：[components/scheduler.py](../components/scheduler.py)）：
+**主要接口**（对应实现：[src/components/scheduler.py](../src/components/scheduler.py)）：
 ```python
 @dataclass(order=True)
 class Seed:
@@ -254,7 +254,7 @@ class SeedScheduler:
 
 **职责**：把运行过程的指标记录下来，并在结束时输出可复盘的数据与图表。
 
-**主要接口**（对应实现：[components/evaluator.py](../components/evaluator.py)）：
+**主要接口**（对应实现：[src/components/evaluator.py](../src/components/evaluator.py)）：
 ```python
 class Evaluator:
    def __init__(self, output_dir: str) -> None: ...
@@ -337,7 +337,7 @@ AT-Fuzz 通过 System V 共享内存读取 AFL++ 的覆盖率 bitmap。核心思
 
 Havoc 通过随机堆叠多种算子生成更“野”的输入，用来快速扩大搜索空间；当一些确定性变异开始边际收益下降时，Havoc 往往更有效。
 
-实现上，Havoc 的“堆叠次数”通过 `config.py` 的 `havoc_iterations` 控制，并支持用命令行参数 `--havoc-iterations` 覆盖。主循环在生成变异样本时，会把该配置值传递给 `Mutator.mutate(..., iterations=...)`，从而真正影响变异强度。
+实现上，Havoc 的“堆叠次数”通过 `src/config.py` 的 `havoc_iterations` 控制，并支持用命令行参数 `--havoc-iterations` 覆盖。主循环在生成变异样本时，会把该配置值传递给 `Mutator.mutate(..., iterations=...)`，从而真正影响变异强度。
 
 #### 4.4.2 Splice 变异
 
@@ -347,7 +347,7 @@ Splice 将两个种子切片后拼接，适合结构化输入（多个字段/块
 
 ### 4.5 配置系统与命令行一致性
 
-AT-Fuzz 将“默认配置、类型约束、验证规则、命令行参数”统一收敛到 [config.py](../config.py) 中，确保配置体系符合软件工程的单一事实来源（Single Source of Truth）原则。
+AT-Fuzz 将“默认配置、类型约束、验证规则、命令行参数”统一收敛到 [src/config.py](../src/config.py) 中，确保配置体系符合软件工程的单一事实来源（Single Source of Truth）原则。
 
 #### 核心设计原则
 

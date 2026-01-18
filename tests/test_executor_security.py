@@ -2,7 +2,7 @@ import unittest
 import os
 import time
 import subprocess
-from components.executor import TestExecutor
+from src.components.executor import TestExecutor
 
 class TestExecutorSecurity(unittest.TestCase):
     def setUp(self):
@@ -42,7 +42,7 @@ echo "Parent done"
         # (如果开启沙箱，进程在 namespace 里，pgrep 可能看不到，或者 killpg 杀的是 bwrap)
 
         # 保存原配置
-        from config import CONFIG
+        from src.config import CONFIG
         original_sandbox = CONFIG.get('use_sandbox')
         CONFIG['use_sandbox'] = False
 

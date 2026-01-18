@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import TypedDict, Optional
 from datetime import datetime, timezone
 
-from config import CONFIG
-from components.monitor import STATS_FIELDS as MONITOR_STATS_FIELDS, BITMAP_FIELDS as MONITOR_BITMAP_FIELDS
-from components.scheduler import SEED_FIELDS as SCHEDULER_SEED_FIELDS
+from .config import CONFIG
+from .components.monitor import STATS_FIELDS as MONITOR_STATS_FIELDS, BITMAP_FIELDS as MONITOR_BITMAP_FIELDS
+from .components.scheduler import SEED_FIELDS as SCHEDULER_SEED_FIELDS
 
 
 # ========== 检查点版本 ==========
@@ -342,7 +342,7 @@ class CheckpointManager:
         fuzzer.scheduler.seeds.clear()
 
         seeds_data = sched_state.get('seeds', [])
-        from components.scheduler import Seed
+        from .components.scheduler import Seed
         for s in seeds_data:
             try:
                 data = base64.b64decode(s['data'])

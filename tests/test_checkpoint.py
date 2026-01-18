@@ -15,9 +15,9 @@ import base64
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from checkpoint import CheckpointManager, CHECKPOINT_VERSION
-from components.monitor import MonitorStats
-from components.scheduler import Seed
+from src.checkpoint import CheckpointManager, CHECKPOINT_VERSION
+from src.components.monitor import MonitorStats
+from src.components.scheduler import Seed
 
 
 class MockFuzzer:
@@ -259,7 +259,7 @@ class TestCheckpointValidation(unittest.TestCase):
 
     def test_validate_fields_runs_without_error(self):
         """测试字段验证可以正常运行"""
-        from checkpoint import validate_fields
+        from src.checkpoint import validate_fields
         # 如果字段不一致，会在模块导入时抛出断言错误
         # 这个测试确保 validate_fields 可以被调用
         validate_fields()  # 应该不抛出异常

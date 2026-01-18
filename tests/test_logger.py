@@ -12,7 +12,7 @@ from io import StringIO
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from logger import get_logger, set_global_log_level, LOG_LEVEL
+from src.logger import get_logger, set_global_log_level, LOG_LEVEL
 
 
 class TestLogger(unittest.TestCase):
