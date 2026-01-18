@@ -27,28 +27,24 @@ class Fuzzer:
     覆盖率引导的变异式模糊器
     """
 
-    def __init__(self, target_id: str, target_path: str, target_args: str,
-                 seed_dir: str, output_dir: str,
-                 checkpoint_path: str | None = None,
-                 resume_from: str | None = None):
+    def __init__(self):
         """
         初始化模糊器
-
-        Args:
-            target_id: 目标ID（如 't01'）
-            target_path: 目标程序路径
-            target_args: 命令行参数模板
-            seed_dir: 初始种子目录
-            output_dir: 输出目录
+        所有配置从 CONFIG 读取
         """
-        self.target_id = target_id
-        self.target_path = target_path
-        self.target_args = target_args
+        # 从 CONFIG 读取所有配置
+        self.target_id = CONFIG['target_id']
+        self.target_path = CONFIG['target']
+        self.target_args = CONFIG['args']
+        seed_dir = CONFIG['seeds']
+        output_dir = CONFIG['output']
+        checkpoint_path = CONFIG['checkpoint_path']
+        resume_from = CONFIG.get('resume_from')  # 可选参数
 
         # 初始化各组件
         self.executor = TestExecutor(
-            target_path,
-            target_args,
+            self.target_path,
+            self.target_args,
             timeout=CONFIG['timeout'],
             use_coverage=True  # 启用覆盖率
         )
@@ -62,9 +58,16 @@ class Fuzzer:
         self.last_coverage = 0
         self.last_execs = 0  # 上次统计的执行次数
         self.seed_dir = Path(seed_dir)
-        self.checkpoint_dir = Path(checkpoint_path) if checkpoint_path else (Path(output_dir) / 'checkpoints')
+
+        if not checkpoint_path:
+            raise ValueError("checkpoint_path must be set in CONFIG (should be handled by apply_advanced_defaults)")
+        self.checkpoint_dir = Path(checkpoint_path)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.resume_flag = bool(resume_from)
+        self.pause_requested = False
+        self.force_exit = False
+        self._loaded_checkpoint = resume_from
+        self._checkpoint_reason = "manual"  # 用于 checkpoint 保存时的原因标记
         self.pause_requested = False
         self.force_exit = False
         self._loaded_checkpoint = resume_from
@@ -160,7 +163,7 @@ class Fuzzer:
         print(f"[+] Loading {len(seed_files)} initial seeds...")
 
         # 使用队列总大小限制，让 scheduler 自动管理队列
-        max_seeds = CONFIG.get('max_seeds', 10000)
+        max_seeds = CONFIG['max_seeds']
         for seed_file in seed_files[:max_seeds]:
             if not seed_file.is_file():
                 continue
@@ -232,7 +235,7 @@ class Fuzzer:
                     break
 
                 # 变异（使用配置的 havoc 迭代次数）
-                iterations = CONFIG.get('havoc_iterations', 16)
+                iterations = CONFIG['havoc_iterations']
                 mutant = Mutator.mutate(seed.data, 'havoc', iterations=iterations)
 
                 # 使用统一的种子处理方法（变异种子仅在有趣时加入队列）
@@ -370,16 +373,21 @@ def main():
         print("These can be provided via command line or set in config.py", file=sys.stderr)
         sys.exit(1)
 
-    # 创建模糊器
-    fuzzer = Fuzzer(
-        target_id=CONFIG['target_id'],
-        target_path=CONFIG['target'],
-        target_args=CONFIG['args'],
-        seed_dir=CONFIG['seeds'],
-        output_dir=CONFIG['output'],
-        checkpoint_path=args.checkpoint_path,
-        resume_from=args.resume_from
-    )
+    # 应用高级默认值（依赖其他配置项的默认值）
+    from config import apply_advanced_defaults
+    apply_advanced_defaults()
+
+    # 验证所有配置项
+    from config import validate_config
+    config_errors = validate_config(CONFIG)
+    if config_errors:
+        print("[!] Configuration validation errors:", file=sys.stderr)
+        for error in config_errors:
+            print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
+
+    # 创建模糊器（从 CONFIG 读取所有配置）
+    fuzzer = Fuzzer()
 
     try:
         # 运行模糊测试

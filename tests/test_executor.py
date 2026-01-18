@@ -176,7 +176,7 @@ class TestExecutorSandbox(unittest.TestCase):
     def test_sandbox_fallback(self):
         """测试沙箱不可用时的回退"""
         from config import CONFIG
-        original_setting = CONFIG.get('use_sandbox', False)
+        original_setting = CONFIG['use_sandbox']
 
         try:
             CONFIG['use_sandbox'] = True

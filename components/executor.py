@@ -58,11 +58,11 @@ class TestExecutor:
         """
         self.target_path = os.path.abspath(target_path)
         self.target_args = target_args
-        self.timeout = timeout or CONFIG['timeout']
+        self.timeout = timeout if timeout is not None else CONFIG['timeout']
         self.use_coverage = use_coverage
 
         # 沙箱配置（使用 bubblewrap）
-        self.use_sandbox = CONFIG.get('use_sandbox', False)
+        self.use_sandbox = CONFIG['use_sandbox']
         if not self.use_sandbox:
             self.bwrap_path = None
         else:
@@ -81,7 +81,7 @@ class TestExecutor:
         # SHM 支持
         self.shm: Optional[AFLSHM] = None
         if use_coverage:
-            bitmap_size = CONFIG.get('bitmap_size', 65536)
+            bitmap_size = CONFIG['bitmap_size']
             self.shm = AFLSHM(bitmap_size=bitmap_size)
             logger.info(f"Coverage enabled, SHM ID: {self.shm.get_shm_id()}")
 
@@ -261,7 +261,7 @@ class TestExecutor:
         def set_limits():
             # 设置内存限制（目前仅在非沙箱模式下启用，避免限制 bwrap 自身导致行为偏差）
             if not self.use_sandbox and hasattr(resource, 'RLIMIT_AS'):
-                mem_bytes = CONFIG.get('mem_limit', 256) * 1024 * 1024  # MB -> bytes
+                mem_bytes = CONFIG['mem_limit'] * 1024 * 1024  # MB -> bytes
                 try:
                     resource.setrlimit(resource.RLIMIT_AS, (mem_bytes, mem_bytes))
                 except ValueError:
@@ -343,7 +343,7 @@ class TestExecutor:
             stderr_f.close()
 
             # 从文件读取 stderr（避免内存溢出）
-            stderr_max = CONFIG.get('stderr_max_len', 1000)
+            stderr_max = CONFIG['stderr_max_len']
             stderr_content = b''
             try:
                 # 读取前 N 字节
@@ -375,7 +375,7 @@ class TestExecutor:
                     pass
 
             elapsed = time.perf_counter() - start_time
-            stderr_max = CONFIG.get('stderr_max_len', 1000)
+            stderr_max = CONFIG['stderr_max_len']
             return ExecutionResult(
                 return_code=-1,
                 exec_time=elapsed,

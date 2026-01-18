@@ -401,7 +401,7 @@ if __name__ == '__main__':
         }
         monitor.process_execution(b'crash input', crash_result)
 
-        # 打印统计（使用 dataclass）
+        # 打印统计
         print(f"\nStats: {monitor.stats.to_dict()}")
 
         # 保存统计

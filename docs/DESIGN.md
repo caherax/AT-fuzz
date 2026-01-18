@@ -349,38 +349,56 @@ Splice 将两个种子切片后拼接，适合结构化输入（多个字段/块
 
 AT-Fuzz 将“默认配置、类型约束、验证规则、命令行参数”统一收敛到 [config.py](../config.py) 中，确保配置体系符合软件工程的单一事实来源（Single Source of Truth）原则。
 
-核心机制：
+#### 核心设计原则
 
-1. `config.py` 定义两部分：
-   - `CONFIG`：默认值（运行时读取）。
-   - `CONFIG_SCHEMA`：配置元数据（类型、validator、命令行参数名/帮助、枚举 choices）。
+1. **CONFIG 初始值不需要合法**
+   - 初始值可以是 None 或占位符，模块加载时**不**进行验证
+   - 没有合理默认值的参数必须通过命令行提供，否则验证会失败
 
-2. `fuzzer.py` 通过遍历 `CONFIG_SCHEMA` 自动生成 argparse 参数，并将解析结果统一应用到 `CONFIG`，避免在多处重复维护参数列表。
+2. **三段式配置流程**（在 main 函数中依次执行）
 
-3. 命令行覆盖规则：
-   - 数值/字符串配置：通过 `--key value` 覆盖。
-   - 枚举配置：通过 `choices` 限制可选值（例如 `--seed-sort-strategy energy|fifo`）。
-   - 布尔开关：使用 flag 形式（例如 `--use-sandbox`），用于在需要隔离副作用的目标上启用 bubblewrap。
+   ```python
+   apply_cli_args_to_config(args)           # 第一段：应用命令行参数
 
-4. Fail-fast 校验：启动时会对默认配置做校验；运行时若通过命令行覆盖，类型转换由 argparse 保证，值域/约束由 `validator` 保证。
+   apply_advanced_defaults()                # 第二段：计算依赖其他参数的默认值
+                                           # 例如 checkpoint_path = <output>/checkpoints
 
-添加新配置项的步骤（最小化维护成本）：
+   validate_config(CONFIG)                  # 第三段：验证所有参数（应已全部合法）
+   ```
 
-1. 在 `CONFIG_SCHEMA` 中新增元数据（包含类型与校验规则）。
-2. 在 `CONFIG` 中新增默认值。
-3.（可选）补充/更新单元测试与 README 的使用说明。
+#### 自动化生成与维护
+
+`fuzzer.py` 通过遍历 `CONFIG_SCHEMA` 自动生成 argparse 参数：
+
+- 数值/字符串配置：通过 `--key value` 覆盖
+- 枚举配置：通过 `choices` 限制可选值（例如 `--seed-sort-strategy energy|fifo`）
+- 布尔开关：使用 flag 形式（例如 `--use-sandbox`）
+
+#### 添加新配置项的步骤
+
+1. 在 `CONFIG_SCHEMA` 中新增元数据（包含类型、验证器、CLI 参数名、帮助文本）
+2. 在 `CONFIG` 中新增初始值（可以是 None，表示没有默认值）
+3. 如果该配置依赖其他配置，在 `apply_advanced_defaults()` 中计算其值
+4. 在单元测试和 README 中补充说明
 
 ### 4.6 字段一致性与类型安全
 
-项目中有若干“跨组件传递/持久化的结构化数据”（例如执行结果、监控统计、时间序列记录）。早期实现如果同时维护：字段名元组、构造逻辑、序列化逻辑、读取/访问逻辑，容易出现“改一处漏改另一处”的隐患。
+项目中有若干“跨组件传递/持久化的结构化数据”（例如执行结果、监控统计、时间序列记录）。为降低人工同步成本，当前实现采用“类型定义即字段单一事实来源”的方式：
 
-为降低这类人工同步成本，当前实现采用“类型定义即字段单一事实来源”的方式：
+1. **执行器返回值**：使用 `ExecutionResult(TypedDict)` 定义字段集合与类型
+   - 测试可通过 `ExecutionResult.__annotations__` 反射字段名
+   - 避免字段名硬编码在多处
 
-1. 执行器返回值：使用 `ExecutionResult(TypedDict)` 定义字段集合与类型；测试可通过 `ExecutionResult.__annotations__` 反射字段名。
-2. 监控统计：使用 `MonitorStats(dataclass)` 定义统计字段；`STATS_FIELDS` 通过 `dataclasses.fields(MonitorStats)` 动态导出；序列化使用 `asdict()`。
-3. 评估时间序列：使用 `TimelineRecord(NamedTuple)` 定义 CSV 行结构；`CSV_COLUMNS` 通过 `TimelineRecord._fields` 自动导出；写入 CSV 直接 `writer.writerow(record)`。
+2. **监控统计**：使用 `MonitorStats(dataclass)` 定义统计字段
+   - `STATS_FIELDS` 通过 `dataclasses.fields(MonitorStats)` 动态导出
+   - 序列化使用 `asdict()`
+   - 改字段只需改一处
 
-这套做法的目标是：在不引入额外运行时开销的前提下，让字段结构在代码层面“可检查、可推断、可复用”，并把字段变更的影响面收敛到单一位置。
+3. **评估时间序列**：使用 `TimelineRecord(NamedTuple)` 定义 CSV 行结构
+   - `CSV_COLUMNS` 通过 `TimelineRecord._fields` 自动导出
+   - 写入 CSV 直接 `writer.writerow(record)`
+
+这套做法在不引入额外运行时开销的前提下，让字段结构“可检查、可推断、可复用”，并把字段变更的影响面收敛到单一位置。
 
 ---
 
@@ -449,7 +467,7 @@ python3 -m unittest discover -s tests -v
    - 改进方向：使用 Cython 优化热点代码，或改用 C++ 重写核心模块
 
 2. **调度策略**：目前仅实现了类似 FAST 的调度
-   - 改进方向：支持更多调度策略（COE, RARE, MMOPT）
+   - 改进方向：支持更多调度策略
 
 3. **变异策略**：缺少结构感知变异
    - 改进方向：集成语法/协议规范，实现基于语法的变异
@@ -459,4 +477,4 @@ python3 -m unittest discover -s tests -v
 
 ### 7.3 学习收获
 
-本项目的重点收获是把“覆盖率反馈 + 调度 + 变异 + 执行 + 评估”的完整闭环跑通，并把工程取舍（如禁用 forkserver）写清楚。
+本项目的重点收获是跑通“覆盖率反馈 + 调度 + 变异 + 执行 + 评估”的完整闭环，并把工程取舍（如禁用 forkserver）写清楚。

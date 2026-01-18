@@ -21,11 +21,6 @@ class TestConfigSystem(unittest.TestCase):
             self.assertTrue(meta.cli_name.startswith('--'),
                           f"{key} cli_name should start with --")
 
-    def test_config_default_values_valid(self):
-        """测试所有默认值都通过验证"""
-        errors = validate_config(CONFIG)
-        if errors:
-            self.fail(f"Default config validation failed:\n" + "\n".join(errors))
 
     def test_config_keys_consistency(self):
         """测试 CONFIG 和 CONFIG_SCHEMA 的键一致"""
@@ -37,16 +32,6 @@ class TestConfigSystem(unittest.TestCase):
                         f"Missing in CONFIG: {schema_keys - config_keys}\n"
                         f"Extra in CONFIG: {config_keys - schema_keys}")
 
-    def test_config_types_match(self):
-        """测试 CONFIG 值的类型与 SCHEMA 定义一致"""
-        for key, value in CONFIG.items():
-            meta = CONFIG_SCHEMA[key]
-            # 允许必需参数在默认配置中为 None
-            if value is None and key in {'target', 'args', 'seeds', 'output'}:
-                continue
-            self.assertIsInstance(value, meta.type,
-                                f"Config '{key}' should be {meta.type.__name__}, "
-                                f"got {type(value).__name__}")
 
     def test_validate_config_catches_type_errors(self):
         """测试验证函数能捕获类型错误"""
@@ -130,19 +115,6 @@ class TestConfigValidation(unittest.TestCase):
         self.assertTrue(meta.validator('energy'))
         self.assertTrue(meta.validator('fifo'))
         self.assertFalse(meta.validator('invalid'))
-
-    def test_validators_dont_crash(self):
-        """测试验证器不会崩溃"""
-        for key, meta in CONFIG_SCHEMA.items():
-            try:
-                # 测试当前默认值
-                value = CONFIG[key]
-                if value is None and key in {'target', 'args', 'seeds', 'output'}:
-                    continue
-                result = meta.validator(value)
-                self.assertTrue(result, f"Validator for {key} rejected default value")
-            except Exception as e:
-                self.fail(f"Validator for {key} raised exception: {e}")
 
 
 if __name__ == '__main__':

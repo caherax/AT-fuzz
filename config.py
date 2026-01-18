@@ -9,6 +9,7 @@
 命令行参数会自动从 CONFIG_SCHEMA 生成。
 """
 
+from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
 
@@ -179,40 +180,40 @@ CONFIG_SCHEMA: dict[str, ConfigMeta] = {
     ),
 }
 
-# ========== Fuzzer 核心配置 ==========
+# ========== Fuzzer 默认配置 ==========
 CONFIG = {
     # --- 核心参数 ---
-    'target': None,                  # 目标程序路径
-    'args': None,                    # 目标程序参数
-    'seeds': None,                   # 种子文件目录
-    'output': None,                  # 输出目录
-    'target_id': 'unknown',          # 目标 ID
-    'duration': 3600,                # 默认运行 1 小时
+    'target': None,                 # 目标程序路径
+    'args': None,                   # 目标程序参数
+    'seeds': None,                  # 种子文件目录
+    'output': None,                 # 输出目录
+    'target_id': 'unknown',         # 目标 ID
+    'duration': 3600,               # 默认运行 1 小时
 
-    'checkpoint_path': None,         # 检查点目录或文件路径（可通过 config 或 CLI 设置）
-    'resume_from': None,             # 从指定检查点恢复的路径（可通过 config 或 CLI 设置）
+    'checkpoint_path': None,        # 检查点目录或文件路径
+    'resume_from': '',              # 从指定检查点恢复的路径
 
     # --- 执行控制 ---
-    'timeout': 1.0,                  # 单次执行超时（秒）
-    'mem_limit': 256,                # 内存限制（MB）
-    'use_sandbox': False,            # 是否使用沙箱 (Linux bwrap)
+    'timeout': 1.0,                 # 单次执行超时（秒）
+    'mem_limit': 256,               # 内存限制（MB）
+    'use_sandbox': False,           # 是否使用沙箱 (Linux bwrap)
 
     # --- 覆盖率相关 ---
-    'bitmap_size': 65536,            # AFL++ 共享内存 bitmap 大小（byte）
+    'bitmap_size': 65536,           # AFL++ 共享内存 bitmap 大小（byte）
 
     # --- 变异策略 ---
-    'max_seed_size': 1024 * 500,     # 最大种子大小 (500KB)，限制初始种子和变异后的种子
-    'havoc_iterations': 16,          # Havoc 变异迭代次数，控制变异强度（越大变异越多）
+    'max_seed_size': 1024 * 500,    # 最大种子大小 (500KB)，限制初始种子和变异后的种子
+    'havoc_iterations': 16,         # Havoc 变异迭代次数，控制变异强度（越大变异越多）
 
     # --- 调度器参数 ---
-    'seed_sort_strategy': 'energy',  # 种子排序策略: 'energy'(能量优先), 'fifo'(入队顺序)
-    'max_seeds': 10000,              # 种子队列最大数量
-    'max_seeds_memory': 256,         # 种子队列最大内存（MB）
+    'seed_sort_strategy': 'energy', # 种子排序策略: 'energy'(能量优先), 'fifo'(入队顺序)
+    'max_seeds': 10000,             # 种子队列最大数量
+    'max_seeds_memory': 256,        # 种子队列最大内存（MB）
 
     # --- 日志与监控 ---
-    'log_interval': 10.0,            # 状态/日志更新频率（秒）
-    'stderr_max_len': 1000,          # stderr 输出最大长度（byte）
-    'crash_info_max_len': 500,       # 崩溃信息中 stderr 的最大长度（byte）
+    'log_interval': 10.0,           # 状态/日志更新频率（秒）
+    'stderr_max_len': 1000,         # stderr 输出最大长度（byte）
+    'crash_info_max_len': 500,      # 崩溃信息中 stderr 的最大长度（byte）
 }
 
 
@@ -234,10 +235,6 @@ def validate_config(config: dict[str, Any]) -> list[str]:
             continue
 
         meta = CONFIG_SCHEMA[key]
-
-        # 跳过允许为 None 的核心参数（target, args, seeds, output, checkpoint_path, resume_from）
-        if value is None and key in ('target', 'args', 'seeds', 'output', 'checkpoint_path', 'resume_from'):
-            continue
 
         # 类型检查
         if not isinstance(value, meta.type):
@@ -273,11 +270,13 @@ def apply_cli_args_to_config(args) -> None:
             CONFIG[config_key] = arg_value
 
 
-# 启动时验证默认配置
-_config_errors = validate_config(CONFIG)
-if _config_errors:
-    import sys
-    print("[!] Configuration validation errors:", file=sys.stderr)
-    for error in _config_errors:
-        print(f"  - {error}", file=sys.stderr)
-    sys.exit(1)
+def apply_advanced_defaults() -> None:
+    """
+    设置高级默认值（依赖其他配置项的默认值）
+    必须在 apply_cli_args_to_config 之后、validate_config 之前调用
+    """
+    # checkpoint_path: 如果未设置，默认为 <output>/checkpoints
+    if CONFIG.get('checkpoint_path') is None and CONFIG.get('output') is not None:
+        CONFIG['checkpoint_path'] = str(Path(CONFIG['output']) / 'checkpoints')
+
+    # 可在此添加其他默认值
