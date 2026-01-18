@@ -55,7 +55,7 @@ python3 -m src.fuzzer \
 
 ## 🏗️ 系统架构
 
-系统由六个核心组件构成：
+系统由多个核心组件构成：
 
 1. **测试执行组件** (`src/components/executor.py`)
    负责启动子进程，管理环境变量 (`__AFL_SHM_ID`, `AFL_NO_FORKSRV`)，处理超时和崩溃检测。
@@ -69,11 +69,14 @@ python3 -m src.fuzzer \
 4. **种子调度组件** (`src/components/scheduler.py`)
    维护种子优先队列（大根堆），根据能量评分选择种子 (O(log n))。
 
-5. **能量调度组件** (`src/components/scheduler.py`)
-   根据种子质量（覆盖率、执行时间、执行次数）动态计算能量，参考 AFL++ 的多调度策略。
-
-6. **评估组件** (`src/components/evaluator.py`)
+5. **评估组件** (`src/components/evaluator.py`)
    记录运行时数据，生成 CSV 报告和 Matplotlib 图表。
+
+**辅助模块**：
+- **检查点管理** (`src/checkpoint.py`) - 用于保存和恢复模糊测试状态
+- **工具函数** (`src/utils.py`) - 包含共享内存操作、覆盖率计算等工具函数
+- **配置管理** (`src/config.py`) - 全局配置管理
+- **日志系统** (`src/logger.py`) - 统一日志输出
 
 ---
 
@@ -219,7 +222,7 @@ python3 -m unittest discover -s tests -v
 
 说明：
 
-- 覆盖核心组件：`executor` / `mutator` / `scheduler` / `evaluator` / `utils`。
+- 覆盖核心组件：`executor` / `mutator` / `scheduler` / `evaluator` / `utils` / `checkpoint` / `monitor`。
 - 如果系统安装了 `bwrap`，会额外跑 executor 的沙箱相关测试；未安装时会自动跳过或回退验证。
 
 ---
@@ -296,6 +299,8 @@ AT-fuzz/
 │   ├── fuzzer.py               # 主程序入口
 │   ├── config.py               # 全局配置
 │   ├── utils.py                # 工具函数 (SHM, Bitmap)
+│   ├── checkpoint.py           # 检查点管理
+│   ├── logger.py               # 日志系统
 │   └── components/             # 核心组件
 │       ├── executor.py         # 测试执行组件
 │       ├── monitor.py          # 执行结果监控组件
@@ -386,6 +391,8 @@ docker run -it \
 
 配置系统设计与“命令行参数自动生成”的实现细节见 [docs/DESIGN.md](docs/DESIGN.md)。
 
+**注意**：配置项会自动从 `src/config.py` 的 `CONFIG_SCHEMA` 生成命令行参数，无需手动添加 argparse 参数。
+
 ---
 
 ## 📚 参考资源
@@ -394,6 +401,14 @@ docker run -it \
 *   **AFL 论文**：*American Fuzzy Lop: A Security-Oriented Fuzzer* (Michał Zalewski, 2014)
 *   **FairFuzz 论文**：*FairFuzz: A Targeted Mutation Strategy for Increasing Greybox Fuzz Testing Coverage* (ASE 2018)
 *   **AFLGo 论文**：*Directed Greybox Fuzzing* (CCS 2017)
+
+## 📝 使用建议
+
+1. **目标程序编译**：使用 AFL++ 编译器（`afl-cc`/`afl-c++`）对目标程序进行插桩
+2. **种子准备**：准备多样化的初始种子，有助于快速发现新路径
+3. **参数调优**：根据目标程序特性调整 `timeout`、`havoc_iterations`、`max_seed_size` 等参数
+4. **长时间运行**：使用检查点机制（`--resume-from`）支持长时间运行和中断恢复
+5. **结果分析**：查看 `output/` 目录下的统计报告和可视化图表，分析模糊测试效果
 
 ---
 
