@@ -154,7 +154,7 @@ make
 ```bash
 python3 -m src.fuzzer \
     --target /path/to/target_binary \
-    --args "target_binary @@" \
+    --args "@@" \
     --seeds /path/to/seeds \
     --output output/test_run \
     --duration 3600
@@ -178,7 +178,7 @@ python3 -m src.fuzzer \
 # 文件参数模式
 python3 -m src.fuzzer \
     --target /path/to/your_binary \
-    --args "your_binary -a @@" \
+    --args "-a @@" \
     --seeds /path/to/seeds \
     --output output/test_run \
     --duration 600
@@ -186,7 +186,6 @@ python3 -m src.fuzzer \
 # 标准输入模式
 python3 -m src.fuzzer \
     --target /path/to/your_binary \
-    --args "your_binary" \
     --seeds /path/to/seeds \
     --output output/test_run \
     --duration 600
@@ -197,7 +196,7 @@ python3 -m src.fuzzer \
 ```bash
 python3 -m src.fuzzer \
     --target /path/to/your_binary \
-    --args "your_binary -a @@" \
+    --args "-a @@" \
     --seeds /path/to/seeds \
     --output output/test_run \
     --duration 600 \

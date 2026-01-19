@@ -195,14 +195,17 @@ class TestExecutor:
         popen_args = {}
         popen_stdin = None
 
+        # 构建完整命令：target_path + args
+        full_cmd = f"{self.target_path} {self.target_args}" if self.target_args else self.target_path
+
         if not self.use_sandbox:
             # 非沙箱模式
-            if '@@' in self.target_args:
-                cmd = self.target_args.replace('@@', self.input_file)
+            if '@@' in full_cmd:
+                cmd = full_cmd.replace('@@', self.input_file)
                 popen_stdin = None
             else:
                 # 标准输入模式：直接传递 stdin 句柄
-                cmd = self.target_args
+                cmd = full_cmd
                 popen_stdin = open(self.input_file, 'rb')
 
             popen_args['shell'] = True
@@ -223,14 +226,14 @@ class TestExecutor:
                 '--new-session'
             ]
 
-            real_cmd_str = self.target_args.replace('@@', self.input_file)
-            input_from_stdin = '@@' not in self.target_args
+            real_cmd_str = full_cmd.replace('@@', self.input_file)
+            input_from_stdin = '@@' not in full_cmd
 
             full_cmd = sandbox_cmd + ['--', '/bin/sh', '-c', real_cmd_str]
 
             if input_from_stdin:
                 popen_stdin = open(self.input_file, 'rb')
-                real_cmd_str = self.target_args
+                real_cmd_str = full_cmd
                 full_cmd = sandbox_cmd + ['--', '/bin/sh', '-c', real_cmd_str]
 
             cmd = full_cmd

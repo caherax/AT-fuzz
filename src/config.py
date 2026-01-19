@@ -184,7 +184,7 @@ CONFIG_SCHEMA: dict[str, ConfigMeta] = {
 CONFIG = {
     # --- 核心参数 ---
     'target': None,                 # 目标程序路径
-    'args': None,                   # 目标程序参数
+    'args': '',                     # 目标程序参数
     'seeds': None,                  # 种子文件目录
     'output': None,                 # 输出目录
     'target_id': 'unknown',         # 目标 ID

@@ -85,7 +85,7 @@ case $TARGET_ID in
         TARGET_NAME="cxxfilt"
         PROJECT="binutils-2.28"
         BINARY="$INSTALL_DIR/bin/c++filt"
-        ARGS="$BINARY"
+        ARGS=""
         # 名称解析/解混淆：输入通常非常短，限制 seed 规模避免无意义膨胀
         EXTRA_PARAMS="--timeout 0.5 --havoc-iterations 10 --max-seed-size 1024"
 
@@ -108,7 +108,7 @@ case $TARGET_ID in
         TARGET_NAME="readelf"
         PROJECT="binutils-2.28"
         BINARY="$INSTALL_DIR/bin/readelf"
-        ARGS="$BINARY -a @@"
+        ARGS="-a @@"
         # ELF 分析：常见为二进制文件（KB~MB），适当放宽超时与 seed 上限
         EXTRA_PARAMS="--timeout 2.0 --havoc-iterations 16 --max-seed-size $((512 * 1024))"
 
@@ -125,7 +125,7 @@ case $TARGET_ID in
         TARGET_NAME="nm"
         PROJECT="binutils-2.28"
         BINARY="$INSTALL_DIR/bin/nm"
-        ARGS="$BINARY @@"
+        ARGS="@@"
         # 符号表工具：一般比 objdump 快，但仍可能吃较大对象文件
         EXTRA_PARAMS="--timeout 2.0 --havoc-iterations 14 --max-seed-size $((512 * 1024))"
 
@@ -142,7 +142,7 @@ case $TARGET_ID in
         TARGET_NAME="objdump"
         PROJECT="binutils-2.28"
         BINARY="$INSTALL_DIR/bin/objdump"
-        ARGS="$BINARY -d @@"
+        ARGS="-d @@"
         # 反汇编：最慢/最重，超时需要更宽松
         EXTRA_PARAMS="--timeout 2.0 --havoc-iterations 16 --max-seed-size $((512 * 1024))"
 
@@ -159,7 +159,7 @@ case $TARGET_ID in
         TARGET_NAME="djpeg"
         PROJECT="libjpeg-turbo-3.0.4"
         BINARY="$INSTALL_DIR/bin/djpeg"
-        ARGS="$BINARY @@"
+        ARGS="@@"
         # JPEG 解码：结构化输入，偏向更强变异但限制文件大小（避免巨图拖慢）
         EXTRA_PARAMS="--timeout 2.0 --havoc-iterations 20 --max-seed-size $((512 * 1024))"
 
@@ -187,7 +187,7 @@ case $TARGET_ID in
         TARGET_NAME="readpng"
         PROJECT="libpng-1.6.29"
         BINARY="$INSTALL_DIR/bin/readpng"
-        ARGS="$BINARY"
+        ARGS=""
         # PNG 解析：同样是结构化二进制，控制输入规模
         EXTRA_PARAMS="--timeout 2.0 --havoc-iterations 20 --max-seed-size $((512 * 1024))"
 
@@ -223,7 +223,7 @@ case $TARGET_ID in
         TARGET_NAME="xmllint"
         PROJECT="libxml2-2.13.4"
         BINARY="$INSTALL_DIR/bin/xmllint"
-        ARGS="$BINARY @@"
+        ARGS="@@"
         # XML：文本格式，过强的插入/删除会迅速破坏结构；适中变异 + 中等输入上限
         EXTRA_PARAMS="--timeout 2.0 --havoc-iterations 14 --max-seed-size $((512 * 1024))"
 
@@ -255,7 +255,7 @@ case $TARGET_ID in
         TARGET_NAME="lua"
         PROJECT="lua-5.4.7"
         BINARY="$INSTALL_DIR/bin/lua"
-        ARGS="$BINARY @@"
+        ARGS="@@"
         # Lua：脚本通常较小，降低变异强度避免完全失去语法形态
         # 注意：Lua 测试/种子可能包含 os.execute/io.popen 等，建议默认启用沙箱隔离副作用
         EXTRA_PARAMS="--timeout 3.0 --havoc-iterations 10 --max-seed-size $((64 * 1024)) --use-sandbox"
@@ -279,7 +279,7 @@ case $TARGET_ID in
         TARGET_NAME="mjs"
         PROJECT="mjs-2.20.0"
         BINARY="$INSTALL_DIR/bin/mjs"
-        ARGS="$BINARY -f @@"
+        ARGS="-f @@"
         # mJS：同 Lua，脚本输入不应太大
         EXTRA_PARAMS="--timeout 2.0 --havoc-iterations 10 --max-seed-size $((4 * 1024))"
 
@@ -306,7 +306,7 @@ case $TARGET_ID in
         TARGET_NAME="tcpdump"
         PROJECT="tcpdump-tcpdump-4.99.5"
         BINARY="$INSTALL_DIR/bin/tcpdump"
-        ARGS="$BINARY -nr @@"
+        ARGS="-nr @@"
         # PCAP：协议结构复杂，适当增加变异；输入可能较大
         EXTRA_PARAMS="--timeout 3.0 --havoc-iterations 18 --max-seed-size $((512 * 1024))"
 
@@ -397,5 +397,5 @@ if [ -n "$EXTRA_PARAMS" ]; then
     CMD+=("${EXTRA_ARR[@]}")
 fi
 
-echo "Running: ${CMD[*]}"
+echo "Running: ${CMD[@]}"
 "${CMD[@]}"
